@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dobro · Dashboard Promotoria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+/* ─── TOKENS ─── */
+:root {
+  --bg:        #0D1117;
+  --surface:   #161B22;
+  --card:      #21262D;
+  --card2:     #2D333B;
+  --accent:    #FF6B35;
+  --accent-lo: rgba(255,107,53,.1);
+  --green:     #3FB950;
+  --green-lo:  rgba(63,185,80,.1);
+  --red:       #F85149;
+  --red-lo:    rgba(248,81,73,.1);
+  --yellow:    #D29922;
+  --yellow-lo: rgba(210,153,34,.1);
+  --text:      #E6EDF3;
+  --muted:     #7D8590;
+  --border:    #30363D;
+  --font:      'Inter', -apple-system, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── LAYOUT ─── */
+.shell { display: flex; min-height: 100vh; }
+
+/* ─── SIDEBAR ─── */
+.sidebar {
+  width: 220px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.sidebar-brand {
+  padding: 20px 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-mark {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 0;
+}
+.brand-logo {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: var(--accent); display: flex; align-items: center;
+  justify-content: center; font-weight: 800; font-size: 13px; color: #fff;
+  letter-spacing: -1px; flex-shrink: 0;
+}
+.brand-name { font-size: 14px; font-weight: 700; letter-spacing: -.3px; }
+.brand-sub  { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+.nav { padding: 12px 8px; flex: 1; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 10px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: var(--muted);
+  cursor: pointer; transition: background .15s, color .15s;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--card); color: var(--text); }
+.nav-item.active { background: var(--accent-lo); color: var(--accent); font-weight: 600; }
+.nav-icon { font-size: 15px; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto; background: var(--red); color: #fff;
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+  display: none;
+}
+.nav-badge.show { display: block; }
+
+.sidebar-footer {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.sync-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); margin-right: 5px; vertical-align: middle;
+}
+
+/* ─── MAIN ─── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(13,17,23,.9); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.topbar-title { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+.topbar-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.btn-icon {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-size: 13px; padding: 7px 12px; cursor: pointer;
+  font-family: var(--font); font-weight: 500;
+  display: flex; align-items: center; gap: 6px;
+  transition: border-color .15s;
+}
+.btn-icon:hover { border-color: var(--accent); }
+
+.content { padding: 24px 28px; }
+
+/* ─── PAGES ─── */
+.page { display: none; }
+.page.active { display: block; animation: fadeIn .2s ease; }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+/* ─── CONFIG BANNER ─── */
+.banner {
+  background: var(--yellow-lo);
+  border: 1px solid rgba(210,153,34,.3);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+  font-size: 12px; color: var(--yellow); line-height: 1.6;
+}
+.banner strong { font-size: 13px; }
+
+/* ─── STATS ─── */
+.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 24px; }
+.stat {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.stat-top { display: flex; align-items: center; justify-content: space-between; }
+.stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.stat-icon  { font-size: 16px; opacity: .7; }
+.stat-val   { font-size: 26px; font-weight: 800; letter-spacing: -1px; font-feature-settings:"tnum"; }
+.stat-sub   { font-size: 11px; color: var(--muted); }
+.c-accent  { color: var(--accent); }
+.c-green   { color: var(--green);  }
+.c-yellow  { color: var(--yellow); }
+.c-red     { color: var(--red);    }
+
+/* ─── TOOLBAR ─── */
+.toolbar {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center;
+}
+.search-wrap { position: relative; flex: 1; min-width: 180px; }
+.search-wrap input {
+  width: 100%;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-size: 13px; font-family: var(--font);
+  padding: 8px 12px 8px 34px; outline: none;
+  transition: border-color .15s;
+}
+.search-wrap input:focus { border-color: var(--accent); }
+.search-ico { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; }
+.filter-select {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-size: 13px; font-family: var(--font);
+  padding: 8px 10px; outline: none; cursor: pointer;
+}
+.filter-select:focus { border-color: var(--accent); }
+
+/* ─── TABLE ─── */
+.table-shell {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+thead { background: var(--surface); }
+th {
+  text-align: left; padding: 10px 14px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap; cursor: pointer; user-select: none;
+}
+th:hover { color: var(--text); }
+th .sort-arrow { margin-left: 4px; opacity: .4; font-size: 9px; }
+th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+td {
+  padding: 11px 14px; font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tr:last-child td { border: none; }
+tbody tr:hover td { background: rgba(255,255,255,.02); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+}
+.badge-green  { background: var(--green-lo);  color: var(--green); }
+.badge-yellow { background: var(--yellow-lo); color: var(--yellow); }
+.badge-red    { background: var(--red-lo);    color: var(--red); }
+
+/* ─── BARRA DE VIDA (assinatura do dashboard) ─── */
+.life-bar-wrap { width: 80px; }
+.life-bar-label { font-size: 10px; color: var(--muted); margin-bottom: 3px; font-feature-settings:"tnum"; }
+.life-bar-track {
+  height: 5px; background: var(--border); border-radius: 99px; overflow: hidden;
+}
+.life-bar-fill {
+  height: 100%; border-radius: 99px;
+  transition: width .4s ease;
+}
+.life-bar-fill.green  { background: var(--green); }
+.life-bar-fill.yellow { background: var(--yellow); }
+.life-bar-fill.red    { background: var(--red); }
+
+/* ─── VENCIMENTOS PAGE ─── */
+.venc-controls {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center;
+}
+.seg-btn {
+  padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--card); color: var(--muted); font-size: 12px;
+  font-weight: 600; cursor: pointer; font-family: var(--font);
+  transition: all .15s;
+}
+.seg-btn.active { background: var(--accent-lo); border-color: var(--accent); color: var(--accent); }
+.seg-btn.green-btn.active  { background: var(--green-lo);  border-color: var(--green);  color: var(--green); }
+.seg-btn.yellow-btn.active { background: var(--yellow-lo); border-color: var(--yellow); color: var(--yellow); }
+.seg-btn.red-btn.active    { background: var(--red-lo);    border-color: var(--red);    color: var(--red); }
+
+/* ─── MODAL ─── */
+.modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.7); z-index: 200;
+  align-items: flex-end; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--surface); border-radius: 16px 16px 0 0;
+  width: 100%; max-width: 560px; max-height: 88vh;
+  overflow-y: auto; padding: 24px;
+  border-top: 1px solid var(--border);
+}
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.modal-header h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
+.modal-close { background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1; }
+
+.modal-section { margin-bottom: 16px; }
+.modal-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px; }
+.modal-card { background: var(--card); border-radius: 8px; overflow: hidden; }
+.modal-row { display: flex; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.modal-row:last-child { border: none; }
+.modal-key { color: var(--muted); }
+.modal-val { font-weight: 600; }
+.foto-pair-modal { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.foto-modal { border-radius: 8px; overflow: hidden; height: 120px; background: var(--card); border: 1px solid var(--border); }
+.foto-modal img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+.foto-modal-lbl { font-size: 10px; color: var(--muted); text-align: center; margin-top: 4px; }
+.lote-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 6px; margin: 3px;
+  font-size: 12px; border: 1px solid var(--border); background: var(--card2);
+}
+.lote-pill .days { font-weight: 700; font-feature-settings:"tnum"; }
+
+/* ─── LIGHTBOX ─── */
+.lb {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.9); z-index: 300;
+  align-items: center; justify-content: center;
+}
+.lb.open { display: flex; }
+.lb img { max-width: 92vw; max-height: 88vh; border-radius: 8px; }
+.lb-close { position: absolute; top: 18px; right: 22px; background: none; border: none; color: #fff; font-size: 28px; cursor: pointer; }
+
+/* ─── EMPTY / LOADING ─── */
+.loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 50px; color: var(--muted); font-size: 13px; }
+.spin { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: rot .7s linear infinite; }
+@keyframes rot { to{transform:rotate(360deg)} }
+.empty-state { text-align: center; padding: 50px 20px; color: var(--muted); font-size: 13px; }
+.empty-icon  { font-size: 36px; margin-bottom: 10px; opacity: .4; }
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+  .content { padding: 16px; }
+  .topbar { padding: 12px 16px; }
+}
+/* ─── LOGIN ─── */
+.login-screen {
+  position: fixed; inset: 0; z-index: 999;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.login-screen.hidden { display: none; }
+.login-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 36px 32px;
+  width: 100%; max-width: 380px;
+}
+.login-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.login-logo-mark {
+  width: 38px; height: 38px; border-radius: 10px; background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 16px; color: #fff; letter-spacing: -1px;
+}
+.login-logo-text h2 { font-size: 16px; font-weight: 700; }
+.login-logo-text p  { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.login-title { font-size: 20px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 6px; }
+.login-sub   { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+.login-field { margin-bottom: 14px; }
+.login-field label {
+  display: block; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px;
+}
+.login-field input {
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); font-size: 15px; font-family: var(--font);
+  padding: 12px 14px; outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.login-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,107,53,.12); }
+.login-btn {
+  width: 100%; padding: 13px; background: var(--accent); color: #fff;
+  border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+  font-family: var(--font); cursor: pointer; margin-top: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity .15s;
+}
+.login-btn:hover { opacity: .9; }
+.login-btn:disabled { opacity: .5; cursor: not-allowed; }
+.login-error {
+  background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3);
+  border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--red);
+  margin-bottom: 14px; display: none;
+}
+.login-error.show { display: block; }
+.login-spin {
+  width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff; border-radius: 50%;
+  animation: rot .7s linear infinite; display: none;
+}
+.user-info {
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.user-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-lo); border: 1px solid var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--accent); flex-shrink: 0;
+}
+.user-email { font-size: 11px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-logout { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 4px; transition: color .15s; }
+.btn-logout:hover { color: var(--red); }
+
+</style>
+</head>
+<body>
+
+<!-- TELA DE LOGIN -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-mark">D</div>
+      <div class="login-logo-text">
+        <h2>Dobro Promotoria</h2>
+        <p>Painel de controle</p>
+      </div>
+    </div>
+    <div class="login-title">Bem-vindo</div>
+    <div class="login-sub">Acesso restrito à equipe Dobro</div>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-field">
+      <label>E-mail</label>
+      <input type="email" id="login-email" placeholder="seu@soudobro.com.br" autocomplete="email">
+    </div>
+    <div class="login-field">
+      <label>Senha</label>
+      <input type="password" id="login-senha" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') fazerLogin()">
+    </div>
+    <button class="login-btn" id="login-btn" onclick="fazerLogin()">
+      <span id="login-btn-txt">Entrar</span>
+      <div class="login-spin" id="login-spin"></div>
+    </button>
+  </div>
+</div>
+
+<div class="shell" id="shell-content" style="display:none">
+
+<!-- ─── SIDEBAR ─── -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-mark">
+      <div class="brand-logo">D</div>
+      <div>
+        <div class="brand-name">Dobro</div>
+        <div class="brand-sub">Promotoria</div>
+      </div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="nav-item active" onclick="showPage('visitas',this)">
+      <span class="nav-icon">📋</span> Visitas
+    </div>
+    <div class="nav-item" onclick="showPage('vencimentos',this)">
+      <span class="nav-icon">⏱</span> Vencimentos
+      <span class="nav-badge" id="badge-venc">0</span>
+    </div>
+    <div class="nav-item" onclick="showPage('lojas',this)">
+      <span class="nav-icon">🏪</span> Por loja
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="sync-dot"></span> Ao vivo · Firebase
+  </div>
+    <div class="user-info" id="user-info" style="display:none">
+      <div class="user-avatar" id="user-avatar">?</div>
+      <div class="user-email" id="user-email-txt"></div>
+      <button class="btn-logout" onclick="fazerLogout()" title="Sair">↩</button>
+    </div>
+</aside>
+
+<!-- ─── MAIN ─── -->
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbar-title">Visitas</div>
+      <div class="topbar-sub" id="topbar-sub">Histórico completo de registros</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-icon" onclick="carregarDados()">↻ Atualizar</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="config-banner" class="banner" style="display:none">
+      <strong>⚙️ Firebase não configurado</strong> — exibindo dados de exemplo.
+      Cole suas credenciais no topo do script para ver dados reais.
+    </div>
+
+    <!-- ══ VISITAS ══ -->
+    <div class="page active" id="page-visitas">
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Total</span><span class="stat-icon">📋</span></div>
+          <div class="stat-val c-accent" id="s-total">—</div>
+          <div class="stat-sub">visitas registradas</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Hoje</span><span class="stat-icon">📅</span></div>
+          <div class="stat-val c-green" id="s-hoje">—</div>
+          <div class="stat-sub">visitas hoje</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Atenção</span><span class="stat-icon">⚠️</span></div>
+          <div class="stat-val c-yellow" id="s-atencao">—</div>
+          <div class="stat-sub">121–270 dias para vencer</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Urgente</span><span class="stat-icon">🔴</span></div>
+          <div class="stat-val c-red" id="s-urgente">—</div>
+          <div class="stat-sub">≤ 120 dias para vencer</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span class="search-ico">🔍</span>
+          <input type="text" id="f-busca" placeholder="Buscar por loja ou produto…" oninput="renderTabela()">
+        </div>
+        <input type="date" class="filter-select" id="f-data" onchange="renderTabela()">
+        <select class="filter-select" id="f-status" onchange="renderTabela()">
+          <option value="">Todos os status</option>
+          <option value="green">✅ OK (> 270 dias)</option>
+          <option value="yellow">⚠️ Atenção (121–270 dias)</option>
+          <option value="red">🔴 Urgente (≤ 120 dias)</option>
+        </select>
+        <select class="filter-select" id="f-sort" onchange="renderTabela()">
+          <option value="data-desc">Mais recentes primeiro</option>
+          <option value="data-asc">Mais antigas primeiro</option>
+          <option value="loja">Por loja (A–Z)</option>
+        </select>
+      </div>
+
+      <div class="table-shell">
+        <div id="tab-container"><div class="loading"><div class="spin"></div>Carregando…</div></div>
+      </div>
+    </div>
+
+    <!-- ══ VENCIMENTOS ══ -->
+    <div class="page" id="page-vencimentos">
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Verde</span><span class="stat-icon">✅</span></div>
+          <div class="stat-val c-green" id="sv-green">—</div>
+          <div class="stat-sub">> 270 dias</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Atenção</span><span class="stat-icon">⚠️</span></div>
+          <div class="stat-val c-yellow" id="sv-yellow">—</div>
+          <div class="stat-sub">121–270 dias</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Urgente</span><span class="stat-icon">🔴</span></div>
+          <div class="stat-val c-red" id="sv-red">—</div>
+          <div class="stat-sub">≤ 120 dias (ou vencido)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Lotes totais</span><span class="stat-icon">📦</span></div>
+          <div class="stat-val c-accent" id="sv-total">—</div>
+          <div class="stat-sub">registrados</div>
+        </div>
+      </div>
+
+      <div class="venc-controls">
+        <button class="seg-btn active" data-venc-filter="all" onclick="setVencFilter('all',this)">Todos</button>
+        <button class="seg-btn red-btn" data-venc-filter="red" onclick="setVencFilter('red',this)">🔴 Urgente (≤ 120 dias)</button>
+        <button class="seg-btn yellow-btn" data-venc-filter="yellow" onclick="setVencFilter('yellow',this)">⚠️ Atenção (121–270 dias)</button>
+        <button class="seg-btn green-btn" data-venc-filter="green" onclick="setVencFilter('green',this)">✅ OK (> 270 dias)</button>
+        <select class="filter-select" id="vf-sort" onchange="renderVencimentos()" style="margin-left:auto">
+          <option value="dias-asc">Mais urgentes primeiro</option>
+          <option value="dias-desc">Mais tempo primeiro</option>
+          <option value="loja">Por loja</option>
+          <option value="produto">Por produto</option>
+        </select>
+      </div>
+
+      <div class="table-shell">
+        <div id="venc-container"><div class="loading"><div class="spin"></div>Carregando…</div></div>
+      </div>
+    </div>
+
+    <!-- ══ LOJAS ══ -->
+    <div class="page" id="page-lojas">
+      <div class="toolbar" style="margin-bottom:16px;">
+        <div class="search-wrap">
+          <span class="search-ico">🔍</span>
+          <input type="text" id="f-loja-busca" placeholder="Buscar loja…" oninput="renderLojas()">
+        </div>
+      </div>
+      <div class="table-shell">
+        <div id="lojas-container"><div class="loading"><div class="spin"></div>Carregando…</div></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- MODAL DETALHE -->
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Detalhe</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lb" id="lb" onclick="closeLb()">
+  <button class="lb-close" onclick="closeLb()">×</button>
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script type="module">
+/* ════════════════════════════════════════════
+   FIREBASE CONFIG — mesmas credenciais do app
+════════════════════════════════════════════ */
+const FB = {
+  apiKey:            "AIzaSyBnF4z5-2aj8nmQW77Pi1C7NEsz52rdTPw",
+  authDomain:        "promotoria-cc147.firebaseapp.com",
+  projectId:         "promotoria-cc147",
+  storageBucket:     "promotoria-cc147.firebasestorage.app",
+  messagingSenderId: "662233757371",
+  appId:             "1:662233757371:web:f23552c15341f132281b9e"
+};
+const FB_OK = FB.apiKey !== "COLE_AQUI";
+
+/* ─── DADOS EXEMPLO ─── */
+const HOJE = new Date().toISOString().split("T")[0];
+function addDias(n) {
+  const d = new Date(); d.setDate(d.getDate()+n);
+  return d.toISOString().split("T")[0];
+}
+const EXEMPLO = [
+  { id:"e1", loja:"Farmácia Drogasil - Pinheiros", data:HOJE, timestamp:new Date().toISOString(), promotor:"Felipe",
+    obsInicial:"Gôndola desorganizada", obsFinal:"Reposição feita",
+    fotoAntesURL:null, fotoDepoisURL:null,
+    produtos:[
+      {sku:"DBR-NIT-GL-ACAF-30", desc:"Dobro BT Nitrato Gel Açaí Frooty 10x30g", cat:"BT NITRATO",
+       lotes:[{qtd:"12",validade:addDias(80)},{qtd:"6",validade:addDias(200)}]},
+      {sku:"DBR-SPT-PO-BAU-450", desc:"Dobro Sport Protein Baunilha 450g", cat:"PROTS",
+       lotes:[{qtd:"3",validade:addDias(310)}]}
+    ]},
+  { id:"e2", loja:"Centauro - Shopping Morumbi", data:HOJE, timestamp:new Date(Date.now()-3600000).toISOString(), promotor:"Felipe",
+    obsInicial:"", obsFinal:"Tudo OK",
+    fotoAntesURL:null, fotoDepoisURL:null,
+    produtos:[
+      {sku:"DBR-CBS-GL-NF-30", desc:"Dobro Carbs Gel Neutro Fresh 10x30g", cat:"CARBS GEL",
+       lotes:[{qtd:"24",validade:addDias(150)}]}
+    ]},
+  { id:"e3", loja:"Empório Santa Luzia - Jardins", data:addDias(-5), timestamp:new Date(Date.now()-432000000).toISOString(), promotor:"Felipe",
+    obsInicial:"Produto fora do lugar", obsFinal:"Corrigido",
+    fotoAntesURL:null, fotoDepoisURL:null,
+    produtos:[
+      {sku:"DBR-HI-PA-LAR-37", desc:"Dobro Hidra Iso Hidratação Laranja 6x37g", cat:"HIDRA",
+       lotes:[{qtd:"8",validade:addDias(50)},{qtd:"15",validade:addDias(400)}]}
+    ]}
+];
+
+/* ─── ESTADO ─── */
+let VISITAS = [];
+let vencFilter = "all";
+let pageTitles = { visitas:["Visitas","Histórico completo de registros"], vencimentos:["Vencimentos","Lotes ordenados por urgência"], lojas:["Por loja","Histórico agrupado por ponto de venda"] };
+
+/* ─── INIT ─── */
+document.addEventListener("DOMContentLoaded", () => {
+  if (!FB_OK) document.getElementById("config-banner").style.display="block";
+  initAuth();
+});
+
+/* ─── LOAD ─── */
+window.carregarDados = async () => {
+  document.getElementById("tab-container").innerHTML   = `<div class="loading"><div class="spin"></div>Carregando…</div>`;
+  document.getElementById("venc-container").innerHTML  = `<div class="loading"><div class="spin"></div>Carregando…</div>`;
+  document.getElementById("lojas-container").innerHTML = `<div class="loading"><div class="spin"></div>Carregando…</div>`;
+
+  if (FB_OK) {
+    try {
+      const {initializeApp} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const {getFirestore,collection,getDocs,query,orderBy} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      const app = initializeApp(FB);
+      const db  = getFirestore(app);
+      const q   = query(collection(db,"visitas"),orderBy("timestamp","desc"));
+      const snap = await getDocs(q);
+      VISITAS = snap.docs.map(d=>({id:d.id,...d.data()}));
+    } catch(e) { console.error(e); VISITAS = EXEMPLO; }
+  } else { VISITAS = EXEMPLO; }
+
+  calcStats(); renderTabela(); renderVencimentos(); renderLojas();
+};
+
+/* ─── HELPERS DIAS ─── */
+function diasParaVencer(validade) {
+  if (!validade) return null;
+  const d = new Date(validade+"T12:00:00");
+  return Math.round((d - new Date()) / 86400000);
+}
+function colorClass(dias) {
+  if (dias === null) return "green";
+  if (dias <= 120) return "red";
+  if (dias <= 270) return "yellow";
+  return "green";
+}
+function badgeHtml(dias) {
+  if (dias === null) return `<span class="badge badge-green">Sem data</span>`;
+  const cls = colorClass(dias);
+  const label = dias < 0 ? `Vencido há ${Math.abs(dias)}d` : dias === 0 ? "Vence hoje" : `${dias} dias`;
+  return `<span class="badge badge-${cls}">${label}</span>`;
+}
+
+/* ─── STATS ─── */
+function calcStats() {
+  const hoje = HOJE;
+  let atencao = 0, urgente = 0;
+  VISITAS.forEach(v => {
+    (v.produtos||[]).forEach(p => {
+      (p.lotes||[]).forEach(l => {
+        const d = diasParaVencer(l.validade);
+        const c = colorClass(d);
+        if (c==="red")    urgente++;
+        if (c==="yellow") atencao++;
+      });
+    });
+  });
+  document.getElementById("s-total").textContent   = VISITAS.length;
+  document.getElementById("s-hoje").textContent    = VISITAS.filter(v=>v.data===hoje).length;
+  document.getElementById("s-atencao").textContent = atencao;
+  document.getElementById("s-urgente").textContent = urgente;
+
+  // Badge sidebar
+  const badge = document.getElementById("badge-venc");
+  const critical = urgente + atencao;
+  badge.textContent = critical;
+  badge.classList.toggle("show", critical > 0);
+}
+
+/* ─── TABELA VISITAS ─── */
+window.renderTabela = () => {
+  const busca  = (document.getElementById("f-busca").value||"").toLowerCase();
+  const data   = document.getElementById("f-data").value;
+  const status = document.getElementById("f-status").value;
+  const sort   = document.getElementById("f-sort").value;
+
+  let vs = [...VISITAS];
+
+  if (busca) vs = vs.filter(v =>
+    v.loja?.toLowerCase().includes(busca) ||
+    (v.produtos||[]).some(p => p.desc?.toLowerCase().includes(busca))
+  );
+  if (data) vs = vs.filter(v => v.data === data);
+  if (status) vs = vs.filter(v => piorStatus(v) === status);
+
+  if (sort==="data-asc")  vs.sort((a,b)=>a.timestamp>b.timestamp?1:-1);
+  else if (sort==="data-desc") vs.sort((a,b)=>a.timestamp>b.timestamp?-1:1);
+  else if (sort==="loja") vs.sort((a,b)=>a.loja.localeCompare(b.loja,"pt-BR"));
+
+  if (!vs.length) {
+    document.getElementById("tab-container").innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhuma visita encontrada.</div>`;
+    return;
+  }
+
+  let html = `<table><thead><tr>
+    <th>Data</th><th>Loja</th><th>Produtos</th>
+    <th>Pior validade</th><th>Status</th><th>Fotos</th><th></th>
+  </tr></thead><tbody>`;
+
+  vs.forEach(v => {
+    const dataFmt = v.data ? new Date(v.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+    const nProd   = (v.produtos||[]).length;
+    const pior    = piorDias(v);
+    const cls     = colorClass(pior);
+    const badgeCls= `badge-${cls}`;
+    const statusTxt = cls==="red"?"🔴 Urgente":cls==="yellow"?"⚠️ Atenção":"✅ OK";
+
+    const fA = v.fotoAntesURL  ? `<img style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${v.fotoAntesURL}"  onclick="openLb('${v.fotoAntesURL}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+    const fD = v.fotoDepoisURL ? `<img style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${v.fotoDepoisURL}" onclick="openLb('${v.fotoDepoisURL}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+
+    // life bar
+    const maxDias = 365;
+    const barPct  = pior===null?100:Math.max(0,Math.min(100, pior/maxDias*100));
+    const barCls  = cls;
+
+    html += `<tr>
+      <td style="white-space:nowrap;font-feature-settings:'tnum'">${dataFmt}</td>
+      <td><strong>${v.loja}</strong></td>
+      <td style="color:var(--muted)">${nProd} prod.</td>
+      <td>
+        <div class="life-bar-wrap">
+          <div class="life-bar-label">${pior===null?"—":pior<0?"Vencido":pior+"d"}</div>
+          <div class="life-bar-track"><div class="life-bar-fill ${barCls}" style="width:${barPct}%"></div></div>
+        </div>
+      </td>
+      <td><span class="badge ${badgeCls}">${statusTxt}</span></td>
+      <td><div style="display:flex;gap:5px;align-items:center">${fA}${fD}</div></td>
+      <td><button onclick="openModal('${v.id}')" style="background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;">Ver</button></td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById("tab-container").innerHTML = html;
+};
+
+function piorStatus(v) {
+  const d = piorDias(v);
+  return colorClass(d);
+}
+function piorDias(v) {
+  let minDias = null;
+  (v.produtos||[]).forEach(p=>{
+    (p.lotes||[]).forEach(l=>{
+      const d = diasParaVencer(l.validade);
+      if (d===null) return;
+      if (minDias===null || d < minDias) minDias=d;
+    });
+  });
+  return minDias;
+}
+
+/* ─── VENCIMENTOS ─── */
+let vencFilterCurrent = "all";
+window.setVencFilter = (f, btn) => {
+  vencFilterCurrent = f;
+  document.querySelectorAll("[data-venc-filter]").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderVencimentos();
+};
+
+window.renderVencimentos = () => {
+  const sortBy = document.getElementById("vf-sort").value;
+  let lotes = [];
+
+  VISITAS.forEach(v => {
+    (v.produtos||[]).forEach(p => {
+      (p.lotes||[]).forEach(l => {
+        const dias = diasParaVencer(l.validade);
+        const cls  = colorClass(dias);
+        lotes.push({ loja:v.loja, data:v.data, sku:p.sku, desc:p.desc, cat:p.cat, qtd:l.qtd, validade:l.validade, dias, cls });
+      });
+    });
+  });
+
+  // Stats venc
+  document.getElementById("sv-green").textContent  = lotes.filter(l=>l.cls==="green").length;
+  document.getElementById("sv-yellow").textContent = lotes.filter(l=>l.cls==="yellow").length;
+  document.getElementById("sv-red").textContent    = lotes.filter(l=>l.cls==="red").length;
+  document.getElementById("sv-total").textContent  = lotes.length;
+
+  // Filter
+  if (vencFilterCurrent !== "all") lotes = lotes.filter(l=>l.cls===vencFilterCurrent);
+
+  // Sort
+  if (sortBy==="dias-asc")  lotes.sort((a,b)=>(a.dias??9999)-(b.dias??9999));
+  else if (sortBy==="dias-desc") lotes.sort((a,b)=>(b.dias??0)-(a.dias??0));
+  else if (sortBy==="loja") lotes.sort((a,b)=>a.loja.localeCompare(b.loja,"pt-BR"));
+  else if (sortBy==="produto") lotes.sort((a,b)=>a.desc.localeCompare(b.desc,"pt-BR"));
+
+  if (!lotes.length) {
+    document.getElementById("venc-container").innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div>Nenhum lote neste filtro.</div>`;
+    return;
+  }
+
+  let html = `<table><thead><tr>
+    <th>Dias restantes</th>
+    <th>Status</th>
+    <th>Produto</th>
+    <th>Categoria</th>
+    <th>Qtd</th>
+    <th>Validade</th>
+    <th>Loja</th>
+  </tr></thead><tbody>`;
+
+  lotes.forEach(l => {
+    const vFmt = l.validade ? new Date(l.validade+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+    const diasLabel = l.dias===null?"—":l.dias<0?`Vencido ${Math.abs(l.dias)}d`:l.dias===0?"Hoje":`${l.dias}d`;
+    const badgeCls = `badge-${l.cls}`;
+    const statusTxt = l.cls==="red"?"🔴 Urgente":l.cls==="yellow"?"⚠️ Atenção":"✅ OK";
+
+    const maxDias = 365;
+    const barPct  = l.dias===null?100:Math.max(0,Math.min(100,(l.dias/maxDias)*100));
+
+    html += `<tr>
+      <td>
+        <div class="life-bar-wrap" style="width:90px">
+          <div class="life-bar-label" style="font-weight:700;font-size:12px;color:${l.cls==="red"?"var(--red)":l.cls==="yellow"?"var(--yellow)":"var(--green)"}">${diasLabel}</div>
+          <div class="life-bar-track"><div class="life-bar-fill ${l.cls}" style="width:${barPct}%"></div></div>
+        </div>
+      </td>
+      <td><span class="badge ${badgeCls}">${statusTxt}</span></td>
+      <td style="max-width:200px;font-size:12px;line-height:1.3">${l.desc}<br><span style="color:var(--muted);font-family:monospace;font-size:10px">${l.sku}</span></td>
+      <td><span style="font-size:11px;font-weight:700;background:var(--accent-lo);color:var(--accent);padding:2px 7px;border-radius:4px">${l.cat}</span></td>
+      <td style="font-feature-settings:'tnum';font-weight:600">${l.qtd||"?"} un.</td>
+      <td style="font-feature-settings:'tnum';white-space:nowrap">${vFmt}</td>
+      <td style="font-size:12px">${l.loja}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById("venc-container").innerHTML = html;
+};
+
+/* ─── LOJAS ─── */
+window.renderLojas = () => {
+  const busca = (document.getElementById("f-loja-busca")?.value||"").toLowerCase();
+  const mapa = {};
+  VISITAS.forEach(v => {
+    if (busca && !v.loja?.toLowerCase().includes(busca)) return;
+    if (!mapa[v.loja]) mapa[v.loja] = [];
+    mapa[v.loja].push(v);
+  });
+  const lojas = Object.keys(mapa).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  if (!lojas.length) {
+    document.getElementById("lojas-container").innerHTML=`<div class="empty-state"><div class="empty-icon">🏪</div>Nenhuma loja encontrada.</div>`;
+    return;
+  }
+  let html=`<table><thead><tr><th>Loja</th><th>Visitas</th><th>Última visita</th><th>Produtos únicos</th><th>Pior validade</th></tr></thead><tbody>`;
+  lojas.forEach(l => {
+    const vs = mapa[l].sort((a,b)=>a.timestamp>b.timestamp?-1:1);
+    const ultima = vs[0];
+    const prods = new Set(); vs.forEach(v=>(v.produtos||[]).forEach(p=>prods.add(p.sku)));
+    const dataFmt = ultima.data ? new Date(ultima.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+    const pior = piorDias(ultima);
+    const cls  = colorClass(pior);
+    const statusTxt = cls==="red"?"🔴 Urgente":cls==="yellow"?"⚠️ Atenção":"✅ OK";
+    html+=`<tr>
+      <td><strong>${l}</strong></td>
+      <td style="color:var(--muted)">${vs.length}</td>
+      <td style="font-feature-settings:'tnum'">${dataFmt}</td>
+      <td style="color:var(--muted)">${prods.size}</td>
+      <td><span class="badge badge-${cls}">${statusTxt}</span></td>
+    </tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById("lojas-container").innerHTML=html;
+};
+
+/* ─── MODAL ─── */
+window.openModal = (id) => {
+  const v = VISITAS.find(x=>x.id===id); if(!v) return;
+  document.getElementById("modal-title").textContent = v.loja;
+  const dataFmt = v.data?new Date(v.data+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}):"—";
+
+  let html=`<div class="modal-section">
+    <div class="modal-section-label">Informações</div>
+    <div class="modal-card">
+      <div class="modal-row"><span class="modal-key">Data</span><span class="modal-val">${dataFmt}</span></div>
+      <div class="modal-row"><span class="modal-key">Promotor</span><span class="modal-val">${v.promotor||"Felipe"}</span></div>
+      ${v.obsInicial?`<div class="modal-row"><span class="modal-key">Obs. inicial</span><span class="modal-val">${v.obsInicial}</span></div>`:""}
+      ${v.obsFinal  ?`<div class="modal-row"><span class="modal-key">Obs. final</span><span class="modal-val">${v.obsFinal}</span></div>`:""}
+    </div>
+  </div>`;
+
+  if (v.fotoAntesURL||v.fotoDepoisURL) {
+    html+=`<div class="modal-section"><div class="modal-section-label">Fotos</div>
+      <div class="foto-pair-modal">
+        ${v.fotoAntesURL ?`<div><div class="foto-modal"><img src="${v.fotoAntesURL}"  onclick="openLb('${v.fotoAntesURL}')"></div><div class="foto-modal-lbl">Antes</div></div>`:""}
+        ${v.fotoDepoisURL?`<div><div class="foto-modal"><img src="${v.fotoDepoisURL}" onclick="openLb('${v.fotoDepoisURL}')"></div><div class="foto-modal-lbl">Depois</div></div>`:""}
+      </div></div>`;
+  }
+
+  if (v.produtos?.length) {
+    html+=`<div class="modal-section"><div class="modal-section-label">Produtos (${v.produtos.length})</div>`;
+    v.produtos.forEach(p=>{
+      html+=`<div class="modal-card" style="margin-bottom:8px">
+        <div class="modal-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <span style="font-size:11px;font-weight:700;background:var(--accent-lo);color:var(--accent);padding:2px 7px;border-radius:4px">${p.cat}</span>
+          <span style="font-weight:600">${p.desc}</span>
+          <span style="color:var(--muted);font-family:monospace;font-size:11px">${p.sku}</span>
+        </div>
+        <div class="modal-row" style="flex-wrap:wrap;gap:4px;border:none">
+          ${(p.lotes||[]).map(l=>{
+            const dias=diasParaVencer(l.validade);
+            const cls=colorClass(dias);
+            const vFmt=l.validade?new Date(l.validade+"T12:00:00").toLocaleDateString("pt-BR"):"—";
+            const diasTxt=dias===null?"—":dias<0?`Vencido ${Math.abs(dias)}d`:dias+"d";
+            return `<div class="lote-pill badge-${cls}" style="border-color:${cls==="red"?"var(--red)":cls==="yellow"?"var(--yellow)":"var(--green)"}">
+              <span>${l.qtd||"?"}un.</span>·<span>${vFmt}</span>·<span class="days">${diasTxt}</span>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
+  document.getElementById("modal-body").innerHTML=html;
+  document.getElementById("modal-bg").classList.add("open");
+};
+window.closeModal = ()=>document.getElementById("modal-bg").classList.remove("open");
+
+/* ─── LIGHTBOX ─── */
+window.openLb = url=>{document.getElementById("lb-img").src=url;document.getElementById("lb").classList.add("open");};
+window.closeLb = ()=>document.getElementById("lb").classList.remove("open");
+
+/* ─── NAV ─── */
+window.showPage = (id, el) => {
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.getElementById("page-"+id).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  el.classList.add("active");
+  const [t,s] = pageTitles[id];
+  document.getElementById("topbar-title").textContent=t;
+  document.getElementById("topbar-sub").textContent=s;
+};
+
+/* ─── FIREBASE AUTH ─── */
+window.fazerLogin = async function() {
+  const email = document.getElementById("login-email").value.trim();
+  const senha = document.getElementById("login-senha").value;
+  const btn   = document.getElementById("login-btn");
+  const txt   = document.getElementById("login-btn-txt");
+  const spin  = document.getElementById("login-spin");
+  const err   = document.getElementById("login-error");
+
+  if (!email || !senha) { mostrarErro("Preencha e-mail e senha."); return; }
+
+  btn.disabled = true; txt.textContent = "Entrando…"; spin.style.display = "block";
+  err.classList.remove("show");
+
+  try {
+    const {initializeApp, getApps} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const {getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+
+    const app  = getApps().length ? getApps()[0] : initializeApp(FB);
+    const auth = getAuth(app);
+
+    await signInWithEmailAndPassword(auth, email, senha);
+    // onAuthStateChanged vai cuidar do resto
+
+  } catch(e) {
+    console.error(e);
+    const msgs = {
+      "auth/invalid-credential":    "E-mail ou senha incorretos.",
+      "auth/user-not-found":        "Usuário não encontrado.",
+      "auth/wrong-password":        "Senha incorreta.",
+      "auth/too-many-requests":     "Muitas tentativas. Tente mais tarde.",
+      "auth/invalid-email":         "E-mail inválido.",
+    };
+    mostrarErro(msgs[e.code] || "Erro ao entrar. Tente novamente.");
+    btn.disabled = false; txt.textContent = "Entrar"; spin.style.display = "none";
+  }
+};
+
+window.fazerLogout = async function() {
+  const {getAuth, signOut} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+  const auth = getAuth();
+  await signOut(auth);
+  document.getElementById("login-screen").classList.remove("hidden");
+  document.getElementById("shell-content").style.display = "none";
+  document.getElementById("user-info").style.display = "none";
+  document.getElementById("login-email").value = "";
+  document.getElementById("login-senha").value = "";
+};
+
+function mostrarErro(msg) {
+  const err = document.getElementById("login-error");
+  err.textContent = msg;
+  err.classList.add("show");
+}
+
+async function initAuth() {
+  const {initializeApp, getApps} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const {getAuth, onAuthStateChanged} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+  const app  = getApps().length ? getApps()[0] : initializeApp(FB);
+  const auth = getAuth(app);
+
+  onAuthStateChanged(auth, user => {
+    const btn  = document.getElementById("login-btn");
+    const txt  = document.getElementById("login-btn-txt");
+    const spin = document.getElementById("login-spin");
+    if (btn) { btn.disabled = false; txt.textContent = "Entrar"; spin.style.display = "none"; }
+
+    if (user) {
+      // Logado — esconde login, mostra dashboard
+      document.getElementById("login-screen").classList.add("hidden");
+      document.getElementById("shell-content").style.display = "flex";
+      // User info na sidebar
+      const ui = document.getElementById("user-info");
+      if (ui) {
+        ui.style.display = "flex";
+        document.getElementById("user-avatar").textContent = user.email[0].toUpperCase();
+        document.getElementById("user-email-txt").textContent = user.email;
+      }
+      carregarDados();
+    } else {
+      // Deslogado — mostra login
+      document.getElementById("login-screen").classList.remove("hidden");
+      document.getElementById("shell-content").style.display = "none";
+    }
+  });
+}
+
+</script>
+</body>
+</html>

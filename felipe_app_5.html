@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0D1117">
+<title>Dobro · Promotoria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ─── DESIGN TOKENS ─── */
+:root {
+  --bg:        #0D1117;
+  --surface:   #161B22;
+  --card:      #21262D;
+  --card2:     #2D333B;
+  --accent:    #FF6B35;
+  --accent-lo: rgba(255,107,53,.12);
+  --green:     #3FB950;
+  --green-lo:  rgba(63,185,80,.12);
+  --red:       #F85149;
+  --yellow:    #D29922;
+  --text:      #E6EDF3;
+  --muted:     #7D8590;
+  --border:    #30363D;
+  --radius:    12px;
+  --font:      'Inter', -apple-system, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100dvh;
+  padding-bottom: max(env(safe-area-inset-bottom), 16px);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── HEADER ─── */
+.header {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(13,17,23,.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 18px 12px;
+  display: flex; align-items: center; gap: 12px;
+}
+.logo-mark {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; color: #fff;
+  letter-spacing: -1px; flex-shrink: 0;
+}
+.header-text h1 { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+.header-text p  { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+/* ─── PROGRESS TRACK (assinatura) ─── */
+.progress-track {
+  display: flex; gap: 3px;
+  padding: 14px 18px 0;
+}
+.track-seg {
+  flex: 1; height: 3px; border-radius: 99px;
+  background: var(--border);
+  transition: background .35s ease;
+  position: relative; overflow: hidden;
+}
+.track-seg.done { background: var(--green); }
+.track-seg.active { background: var(--accent); }
+.track-seg.active::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent);
+  animation: shimmer 1.2s ease infinite;
+}
+@keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+
+.step-label {
+  padding: 8px 18px 14px;
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .7px;
+  color: var(--muted);
+}
+.step-label span { color: var(--accent); }
+
+/* ─── SCREENS ─── */
+.screen { display: none; padding: 0 18px 24px; animation: fadeUp .2s ease; }
+.screen.active { display: block; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+/* ─── FIELDS ─── */
+.field { margin-bottom: 18px; }
+.field-label {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted); margin-bottom: 7px; display: block;
+}
+
+select, input[type="text"], input[type="date"], input[type="number"], textarea {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 15px; font-family: var(--font);
+  padding: 13px 14px;
+  appearance: none; outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+select:focus, input:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-lo);
+}
+select option { background: var(--card); }
+textarea { resize: none; min-height: 72px; line-height: 1.5; }
+
+/* ─── CATEGORIA PILLS ─── */
+.cat-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+  margin-bottom: 18px;
+}
+.cat-pill {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  font-size: 13px; font-weight: 600;
+  color: var(--muted);
+  cursor: pointer; text-align: center;
+  transition: all .15s;
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+}
+.cat-pill:active, .cat-pill.selected {
+  border-color: var(--accent);
+  background: var(--accent-lo);
+  color: var(--accent);
+}
+.cat-icon { font-size: 16px; }
+
+/* ─── PRODUTO SELECT ─── */
+.produto-select-wrap {
+  position: relative;
+}
+.produto-select-wrap::after {
+  content: '▾';
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none; font-size: 12px;
+}
+
+/* ─── PRODUTO CARDS ─── */
+.produto-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.produto-card-head {
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.produto-cat-tag {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px;
+  background: var(--accent-lo); color: var(--accent);
+  padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
+}
+.produto-nome {
+  flex: 1; font-size: 13px; font-weight: 600; line-height: 1.3;
+}
+.produto-sku {
+  font-size: 10px; color: var(--muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  margin-top: 2px;
+}
+.btn-remove-prod {
+  background: none; border: none; color: var(--muted);
+  font-size: 18px; cursor: pointer; padding: 0 2px;
+  line-height: 1; flex-shrink: 0;
+  transition: color .15s;
+}
+.btn-remove-prod:active { color: var(--red); }
+
+.produto-card-body { padding: 0 14px 12px; }
+
+/* ─── LOTES ─── */
+.lotes-header {
+  display: grid; grid-template-columns: 80px 1fr 32px;
+  gap: 6px; margin-bottom: 6px;
+}
+.lotes-header span {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--muted); padding-left: 2px;
+}
+.lote-row {
+  display: grid; grid-template-columns: 80px 1fr 32px;
+  gap: 6px; margin-bottom: 6px; align-items: center;
+}
+.lote-row input { font-size: 14px; padding: 9px 10px; }
+.lote-row input[type="number"] { font-feature-settings: "tnum"; text-align: center; }
+.btn-remove-lote {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; width: 32px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 14px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.btn-remove-lote:active { color: var(--red); border-color: var(--red); }
+
+.btn-add-lote {
+  width: 100%; margin-top: 4px;
+  background: none; border: 1px dashed var(--border);
+  border-radius: 8px; color: var(--muted);
+  font-size: 12px; padding: 7px; cursor: pointer;
+  font-family: var(--font);
+  transition: border-color .15s, color .15s;
+}
+.btn-add-lote:active { border-color: var(--accent); color: var(--accent); }
+
+/* ─── FOTO BOX ─── */
+.foto-box {
+  background: var(--card);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  height: 180px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px; cursor: pointer; position: relative;
+  overflow: hidden; transition: border-color .2s;
+}
+.foto-box.has-img { border-style: solid; border-color: var(--green); }
+.foto-box:active { border-color: var(--accent); }
+.foto-box img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.foto-box input[type="file"] { display: none; }
+.foto-icon-big { font-size: 36px; z-index: 1; }
+.foto-caption { font-size: 13px; color: var(--muted); z-index: 1; font-weight: 500; }
+.foto-overlay {
+  position: absolute; bottom: 0; inset-x: 0; z-index: 2;
+  background: linear-gradient(transparent, rgba(0,0,0,.6));
+  padding: 20px 14px 10px;
+  font-size: 12px; font-weight: 600; color: var(--green);
+}
+
+/* ─── BUTTONS ─── */
+.btn {
+  width: 100%; padding: 14px 18px;
+  border-radius: var(--radius); border: none;
+  font-size: 15px; font-weight: 700; font-family: var(--font);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity .15s, transform .1s;
+  letter-spacing: -.2px;
+}
+.btn:active { opacity: .8; transform: scale(.98); }
+.btn-primary  { background: var(--accent); color: #fff; }
+.btn-ghost    { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.btn-success  { background: var(--green); color: #fff; }
+.btn-add-prod {
+  background: var(--surface); border: 1.5px dashed var(--accent);
+  color: var(--accent); margin-bottom: 16px;
+}
+.btn-row { display: flex; gap: 10px; margin-top: 4px; }
+.btn-row .btn { flex: 1; }
+
+/* ─── RESUMO ─── */
+.resumo-section { margin-bottom: 14px; }
+.resumo-section-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .7px; color: var(--muted);
+  margin-bottom: 8px; padding-left: 2px;
+}
+.resumo-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.resumo-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 14px; border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.resumo-row:last-child { border: none; }
+.resumo-row .key { color: var(--muted); }
+.resumo-row .val { font-weight: 600; text-align: right; max-width: 60%; }
+
+.foto-thumb-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.foto-thumb { border-radius: 10px; overflow: hidden; height: 110px; background: var(--surface); border: 1px solid var(--border); }
+.foto-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.foto-thumb-label { font-size: 10px; color: var(--muted); text-align: center; margin-top: 4px; font-weight: 500; }
+
+.prod-resumo-item {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.prod-resumo-item:last-child { border: none; }
+.prod-resumo-nome { font-size: 13px; font-weight: 600; flex: 1; line-height: 1.3; }
+.prod-resumo-lotes { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+/* ─── TOAST ─── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px 20px; border-radius: 30px;
+  font-size: 13px; font-weight: 600;
+  transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+  z-index: 999; white-space: nowrap;
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.ok   { border-color: var(--green); color: var(--green); }
+.toast.err  { border-color: var(--red);   color: var(--red); }
+
+/* ─── CONFIG BANNER ─── */
+.banner {
+  background: rgba(210,153,34,.08);
+  border: 1px solid rgba(210,153,34,.3);
+  border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 18px;
+  font-size: 12px; color: var(--yellow); line-height: 1.5;
+}
+.banner strong { display: block; margin-bottom: 2px; font-size: 13px; }
+
+/* ─── SPINNER ─── */
+.spin {
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff; border-radius: 50%;
+  animation: rot .7s linear infinite; display: none;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+/* ─── EMPTY STATE ─── */
+.empty-prod {
+  text-align: center; padding: 28px 20px;
+  color: var(--muted); font-size: 13px;
+}
+.empty-prod .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: .5; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ─── TELA DE SENHA ─── */
+.senha-screen {
+  position: fixed; inset: 0; z-index: 999;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.senha-screen.hidden { display: none; }
+.senha-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 36px 28px;
+  width: 100%; max-width: 340px; text-align: center;
+}
+.senha-logo {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: var(--accent); margin: 0 auto 20px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 22px; color: #fff; letter-spacing: -1px;
+}
+.senha-title { font-size: 19px; font-weight: 800; letter-spacing: -.4px; margin-bottom: 4px; }
+.senha-sub   { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+.senha-dots  { display: flex; justify-content: center; gap: 12px; margin-bottom: 28px; }
+.senha-dot   {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--border); background: transparent;
+  transition: all .15s;
+}
+.senha-dot.filled { background: var(--accent); border-color: var(--accent); }
+.senha-dot.erro   { background: var(--red);    border-color: var(--red); }
+.senha-teclado {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.senha-key {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 8px;
+  font-size: 20px; font-weight: 700; color: var(--text);
+  cursor: pointer; transition: background .1s, transform .1s;
+  user-select: none;
+}
+.senha-key:active { background: var(--card2); transform: scale(.94); }
+.senha-key.apagar { font-size: 16px; color: var(--muted); }
+.senha-key.vazio  { background: transparent; border-color: transparent; cursor: default; }
+.senha-erro-msg {
+  font-size: 12px; color: var(--red); margin-top: -16px; margin-bottom: 16px;
+  min-height: 16px; transition: opacity .2s;
+}
+</style>
+</head>
+<body>
+
+<!-- TELA DE SENHA -->
+<div class="senha-screen" id="senha-screen">
+  <div class="senha-box">
+    <div class="senha-logo">D</div>
+    <div class="senha-title">Promotoria Dobro</div>
+    <div class="senha-sub">Digite o PIN de acesso</div>
+    <div class="senha-dots" id="senha-dots">
+      <div class="senha-dot" id="dot-0"></div>
+      <div class="senha-dot" id="dot-1"></div>
+      <div class="senha-dot" id="dot-2"></div>
+      <div class="senha-dot" id="dot-3"></div>
+    </div>
+    <div class="senha-erro-msg" id="senha-erro"></div>
+    <div class="senha-teclado">
+      <div class="senha-key" onclick="digitarSenha(1)">1</div>
+      <div class="senha-key" onclick="digitarSenha(2)">2</div>
+      <div class="senha-key" onclick="digitarSenha(3)">3</div>
+      <div class="senha-key" onclick="digitarSenha(4)">4</div>
+      <div class="senha-key" onclick="digitarSenha(5)">5</div>
+      <div class="senha-key" onclick="digitarSenha(6)">6</div>
+      <div class="senha-key" onclick="digitarSenha(7)">7</div>
+      <div class="senha-key" onclick="digitarSenha(8)">8</div>
+      <div class="senha-key" onclick="digitarSenha(9)">9</div>
+      <div class="senha-key vazio"></div>
+      <div class="senha-key" onclick="digitarSenha(0)">0</div>
+      <div class="senha-key apagar" onclick="apagarSenha()">⌫</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo-mark">D</div>
+  <div class="header-text">
+    <h1>Promotoria Dobro</h1>
+    <p id="header-date"></p>
+  </div>
+</div>
+
+<!-- PROGRESS TRACK -->
+<div class="progress-track">
+  <div class="track-seg active" id="seg-0"></div>
+  <div class="track-seg" id="seg-1"></div>
+  <div class="track-seg" id="seg-2"></div>
+  <div class="track-seg" id="seg-3"></div>
+  <div class="track-seg" id="seg-4"></div>
+</div>
+<div class="step-label" id="step-label">Passo <span>1</span> de 5 — Identificação</div>
+
+<!-- ══════════════════════════════════
+     PASSO 0 — LOJA
+══════════════════════════════════ -->
+<div class="screen active" id="screen-0">
+  <div class="banner" id="firebase-banner">
+    <strong>⚙️ Firebase não configurado</strong>
+    Dados serão salvos localmente até as credenciais serem adicionadas.
+  </div>
+
+  <div class="field">
+    <span class="field-label">Loja</span>
+    <div class="produto-select-wrap" id="loja-select-wrap">
+      <select id="loja-select"><option value="">Selecionar loja…</option></select>
+    </div>
+    <input type="text" id="loja-custom" placeholder="Nome da loja…"
+      style="display:none;margin-top:8px;"
+      oninput="S.lojaCustom=this.value">
+
+    <div onclick="toggleForaRoteiro()"
+      style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;user-select:none;">
+      <div id="fora-check"
+        style="width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border);
+               background:var(--card);display:flex;align-items:center;justify-content:center;
+               flex-shrink:0;transition:all .15s;font-size:11px;">
+      </div>
+      <span style="font-size:12px;color:var(--muted);">Loja fora do roteiro</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Data da visita</span>
+    <input type="date" id="data-visita">
+  </div>
+
+  <div class="field">
+    <span class="field-label">Observação inicial</span>
+    <textarea id="obs-inicial" placeholder="Ex: gôndola desorganizada, falta produto X…"></textarea>
+  </div>
+
+  <button class="btn btn-primary" onclick="goTo(1)">Continuar →</button>
+</div>
+
+<!-- ══════════════════════════════════
+     PASSO 1 — FOTO ANTES
+══════════════════════════════════ -->
+<div class="screen" id="screen-1">
+  <div class="field">
+    <span class="field-label">Foto da gôndola — antes</span>
+    <div class="foto-box" id="box-antes" onclick="document.getElementById('inp-antes').click()">
+      <div class="foto-icon-big">📷</div>
+      <div class="foto-caption">Fotografar antes de arrumar</div>
+      <input type="file" id="inp-antes" accept="image/*" capture="environment" onchange="handleFoto(this,'antes')">
+    </div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-ghost" onclick="goTo(0)">← Voltar</button>
+    <button class="btn btn-primary" onclick="goTo(2)">Continuar →</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     PASSO 2 — PRODUTOS
+══════════════════════════════════ -->
+<div class="screen" id="screen-2">
+  <!-- Seletor categoria + produto -->
+  <div class="field">
+    <span class="field-label">Categoria</span>
+    <div class="cat-grid" id="cat-grid"></div>
+  </div>
+
+  <div class="field" id="prod-select-field" style="display:none">
+    <span class="field-label">Produto</span>
+    <div class="produto-select-wrap">
+      <select id="prod-select">
+        <option value="">Selecionar produto…</option>
+      </select>
+    </div>
+    <button class="btn btn-add-prod" style="margin-top:10px;" onclick="adicionarProduto()">+ Adicionar à lista</button>
+  </div>
+
+  <!-- Lista de produtos adicionados -->
+  <div id="produtos-lista">
+    <div class="empty-prod" id="empty-prod">
+      <div class="empty-icon">📦</div>
+      Nenhum produto adicionado ainda.<br>Selecione uma categoria acima.
+    </div>
+  </div>
+
+  <div class="btn-row" style="margin-top:8px;">
+    <button class="btn btn-ghost" onclick="goTo(1)">← Voltar</button>
+    <button class="btn btn-primary" onclick="goTo(3)">Continuar →</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     PASSO 3 — FOTO DEPOIS
+══════════════════════════════════ -->
+<div class="screen" id="screen-3">
+  <div class="field">
+    <span class="field-label">Foto da gôndola — depois</span>
+    <div class="foto-box" id="box-depois" onclick="document.getElementById('inp-depois').click()">
+      <div class="foto-icon-big">📷</div>
+      <div class="foto-caption">Fotografar após arrumar</div>
+      <input type="file" id="inp-depois" accept="image/*" capture="environment" onchange="handleFoto(this,'depois')">
+    </div>
+  </div>
+  <div class="field">
+    <span class="field-label">Observação final</span>
+    <textarea id="obs-final" placeholder="Ex: reposição feita, validade OK, produto reposicionado…"></textarea>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-ghost" onclick="goTo(2)">← Voltar</button>
+    <button class="btn btn-primary" onclick="prepResumo(); goTo(4)">Revisar →</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     PASSO 4 — RESUMO E ENVIO
+══════════════════════════════════ -->
+<div class="screen" id="screen-4">
+  <div class="resumo-section">
+    <div class="resumo-section-title">Visita</div>
+    <div class="resumo-card" id="res-loja"></div>
+  </div>
+
+  <div class="resumo-section">
+    <div class="resumo-section-title">Fotos</div>
+    <div class="foto-thumb-pair">
+      <div>
+        <div class="foto-thumb" id="thumb-antes"></div>
+        <div class="foto-thumb-label">Antes</div>
+      </div>
+      <div>
+        <div class="foto-thumb" id="thumb-depois"></div>
+        <div class="foto-thumb-label">Depois</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="resumo-section">
+    <div class="resumo-section-title" id="res-prod-title">Produtos</div>
+    <div class="resumo-card" id="res-produtos"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-ghost" onclick="goTo(3)">← Voltar</button>
+    <button class="btn btn-success" id="btn-enviar" onclick="enviar()">
+      <span id="btn-txt">Salvar registro</span>
+      <div class="spin" id="btn-spin"></div>
+    </button>
+  </div>
+
+  <!-- Botão WhatsApp — aparece após salvar -->
+  <div id="btn-zap-wrap" style="display:none; margin-top:10px;">
+    <button class="btn" id="btn-zap" onclick="abrirZap()"
+      style="background:#25D366;color:#fff;font-size:15px;font-weight:700;">
+      📲 Enviar resumo no grupo
+    </button>
+    <p style="text-align:center;font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;">
+      O grupo vai abrir com o resumo copiado.<br>Cole a mensagem, anexe as fotos e envie.
+    </p>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* ═══════════════════════════════════════════════════
+   FIREBASE CONFIG — Cole suas credenciais aqui
+═══════════════════════════════════════════════════ */
+const FB = {
+  apiKey:            "AIzaSyBnF4z5-2aj8nmQW77Pi1C7NEsz52rdTPw",
+  authDomain:        "promotoria-cc147.firebaseapp.com",
+  projectId:         "promotoria-cc147",
+  storageBucket:     "promotoria-cc147.firebasestorage.app",
+  messagingSenderId: "662233757371",
+  appId:             "1:662233757371:web:f23552c15341f132281b9e"
+};
+const FB_OK = FB.apiKey !== "COLE_AQUI";
+
+/* ─── CATÁLOGO DOBRO ─── */
+const CATALOGO = {
+  "BT NITRATO": [
+    {desc:"Dobro BT Nitrato 400 Beterraba em pó 220g",sku:"DBR-NIT-LT-BT400-220"},
+    {desc:"Dobro BT Nitrato Shot 400 300g",sku:"DBR-NIT-PO-SHT400-300"},
+    {desc:"Dobro BT Nitrato Shot 400 Sabor Laranja e Morango 300g",sku:"DBR-NIT-PO-SHT400-LAR-300"},
+    {desc:"Dobro BT Nitrato Shot 400 Sabor Pink Limonade 300g",sku:"DBR-NIT-PO-SHT400-PINK-300"},
+    {desc:"Dobro BT Nitrato Shot 400 Sachê Laranja 10x10g",sku:"DBR-NIT-ST-SHT400-LAR-10"},
+    {desc:"Dobro BT Nitrato Shot 400 Sachê Pink Limonade 10x10g",sku:"DBR-NIT-ST-SHT400-PKL-10"},
+    {desc:"Dobro BT Nitrato Gel Açaí Frooty 10x30g",sku:"DBR-NIT-GL-ACAF-30"},
+    {desc:"Dobro BT Nitrato Gel Blueberry 10x30g",sku:"DBR-NIT-GL-BLU-30"},
+    {desc:"Dobro BT Nitrato Gel Laranja e Morango 10x30g",sku:"DBR-NIT-GL-LAR-30"},
+    {desc:"Dobro BT Nitrato Gel Limão e Gengibre com Cafeina 10x30g",sku:"DBR-NIT-GL-LIM-30"},
+    {desc:"Dobro BT Nitrato Gel Pink Lemonade com Cafeina e Citrulina 10x30g",sku:"DBR-NIT-GL-PKL-30"},
+    {desc:"Dobro BT Nitrato Gel Redberry 10x30g",sku:"DBR-NIT-GL-RED-30"},
+    {desc:"Dobro BT Nitrato Sabor Açaí com Taurina 450g",sku:"DBR-NIT-LT-ACA-450"},
+    {desc:"Dobro BT Nitrato Blueberry 450g",sku:"DBR-NIT-LT-BLU-450"},
+    {desc:"Dobro BT Nitrato Sabor Laranja com Morango 450g",sku:"DBR-NIT-LT-LAR-450"},
+    {desc:"Dobro BT Nitrato Sabor Limão e Gengibre com Cafeína 450g",sku:"DBR-NIT-LT-LIM-450"},
+    {desc:"Dobro BT Nitrato Sabor Pink Lemonade com Citrulina 450g",sku:"DBR-NIT-LT-PKL-450"},
+    {desc:"Dobro BT Nitrato Sabor Redberry 450g",sku:"DBR-NIT-LT-RED-450"},
+    {desc:"Dobro BT Nitrato Sachê Açaí com Taurina 10x30g",sku:"DBR-NIT-SC-ACA-30"},
+    {desc:"Dobro BT Nitrato Sachê Blueberry 10x30g",sku:"DBR-NIT-SC-BLU-30"},
+    {desc:"Dobro BT Nitrato Sachê Laranja e Morango 10x30g",sku:"DBR-NIT-SC-LAR-30"},
+    {desc:"Dobro BT Nitrato Sachê Limão e Gengibre com Cafeina 10X30g",sku:"DBR-NIT-SC-LIM-30"},
+    {desc:"Dobro BT Nitrato Sachê Pink Lemonade com Citrulina 10x30g",sku:"DBR-NIT-SC-PKL-30"},
+    {desc:"Dobro BT Nitrato Sachê Redberry 10x30g",sku:"DBR-NIT-SC-RED-30"}
+  ],
+  "BT GEL": [
+    {desc:"Dobro BT Gel Sabor Acerola 10x30g",sku:"DBR-BTG-GL-ACE-30"},
+    {desc:"Dobro BT Gel Guaraná com Cafeina 10x30g",sku:"DBR-BTG-GL-GUA-30"},
+    {desc:"Dobro BT Gel Sabor Laranja 10x30g",sku:"DBR-BTG-GL-LAR-30"},
+    {desc:"Dobro BT Gel Sabor Limão com Cafeina 10x30g",sku:"DBR-BTG-GL-LIM-30"}
+  ],
+  "CARBS GEL": [
+    {desc:"Dobro Carbs Gel Neutro Fresh 10x30g",sku:"DBR-CBS-GL-NF-30"},
+    {desc:"Dobro Carbs Gel Neutro Fresh com Cafeína 10x30g",sku:"DBR-CBS-GL-NFCAF-30"},
+    {desc:"Dobro Carbs Gel sabor Jabuticaba 10x30g",sku:"DBR-CBS-GL-JAB-30"},
+    {desc:"Dobro Carbs Gel sabor Maracujá 10x30g",sku:"DBR-CBS-GL-MAR-30"},
+    {desc:"Dobro Carbs Gel sabor Tropical com Cafeína 10x30g",sku:"DBR-CBS-GL-TRO-30"}
+  ],
+  "CARBS GEL 40": [
+    {desc:"Dobro Carbs Gel 40 Neutro Fresh 10x55g",sku:"DBR-CBS-GL-40-NF-55"},
+    {desc:"Dobro Carbs Gel 40 Neutro Fresh com Cafeína 10x55g",sku:"DBR-CBS-GL-40-NFCAF-55"}
+  ],
+  "HIDRA": [
+    {desc:"Dobro Hidra Iso Hidratação Laranja 6x37g",sku:"DBR-HI-PA-LAR-37"},
+    {desc:"Dobro Hidra Iso Hidratação Limão 6x37g",sku:"DBR-HI-PA-LIM-37"},
+    {desc:"Dobro Hidra Eletrólitos Limão 10x7g",sku:"DBR-HEL-ST-LIM-7"},
+    {desc:"Dobro Hidra Eletrólitos Laranja 10x7g",sku:"DBR-HEL-ST-LAR-7"},
+    {desc:"Dobro Hidra Eletrólitos Frutas Vermelhas 10x7g",sku:"DBR-HEL-ST-FRV-7"},
+    {desc:"Dobro Lata Hidra Isotônico Tropical 350ml",sku:"DBR-HI-LT-TRO-350"},
+    {desc:"Dobro Lata Hidra Isotônico Frutas Vermelhas 350ml",sku:"DBR-HI-LT-FRV-350"},
+    {desc:"Dobro Lata Hidra Isotônico Laranja e Maracujá 350ml",sku:"DBR-HI-LT-LAR-350"}
+  ],
+  "HIDRO GEL": [
+    {desc:"Dobro Hidro Gel Neutro 10x40g",sku:"DBR-HDG-GL-NEU-40"},
+    {desc:"Dobro Hidro Gel Neutro com Cafeína 10x40g",sku:"DBR-HDG-GL-NEUCAF-40"}
+  ],
+  "PROTS": [
+    {desc:"Dobro Sport Protein Sabor Baunilha 450g",sku:"DBR-SPT-PO-BAU-450"},
+    {desc:"Dobro Sport Protein Chocolate com Avelã 450g",sku:"DBR-SPT-PO-CHA-450"},
+    {desc:"Dobro Sport Protein Sabor Cookies 450g",sku:"DBR-SPT-PO-CKI-450"},
+    {desc:"Dobro Sport Protein Sabor Chocolate Belga 450g",sku:"DBR-SPT-PO-CHB-450"},
+    {desc:"Dobro Sport Protein Sabor Doce de Leite 450g",sku:"DBR-SPT-PO-DDL-450"},
+    {desc:"Dobro Sport Protein Sabor Chocolate Branco 450g",sku:"DBR-SPT-PO-CB7-450"},
+    {desc:"Dobro Sachê Sport Protein Baunilha 10x30g",sku:"DBR-SPT-SC-BAU-30"},
+    {desc:"Dobro Sachê Sport Protein Chocolate com Avelã 10x30g",sku:"DBR-SPT-SC-CHA-30"},
+    {desc:"Dobro Sport Protein Sabor Cookies 10x30g",sku:"DBR-SPT-SC-CKI-30"},
+    {desc:"Dobro Sachê Sport Protein Chocolate Belga 10x30g",sku:"DBR-SPT-SC-CHB-30"},
+    {desc:"Dobro Sachê Sport Protein Doce de Leite 10x30g",sku:"DBR-SPT-SC-DDL-30"}
+  ],
+  "ISOLADOS": [
+    {desc:"Dobro Creatina Monohidratada 150g",sku:"DBR-ISL-PO-MONO-150"},
+    {desc:"Dobro Creatina Creapure 150g",sku:"DBR-ISL-PO-CREAP-150"},
+    {desc:"Dobro Beta-alanina 150g",sku:"DBR-ISL-PO-BETA-150"},
+    {desc:"Dobro Creatina Creapure Sabor Frutas Vermelhas 210g",sku:"DBR-ISL-PO-CREAP-FRV-210"},
+    {desc:"Dobro Creatina Creapure Sabor Frutas Tropicais 210g",sku:"DBR-ISL-PO-CREAP-FRT-210"},
+    {desc:"Dobro Creatina Creapure Sabor Frutas Vermelhas 10x3,5g",sku:"DBR-ISL-ST-CREAP-FRV-3.5"},
+    {desc:"Dobro Creatina Creapure Sabor Frutas Tropicais 10x3,5g",sku:"DBR-ISL-ST-CREAP-FRT-3.5"}
+  ]
+};
+
+const CAT_ICONS = {
+  "BT NITRATO":"⚡","BT GEL":"🟠","CARBS GEL":"🔋",
+  "CARBS GEL 40":"🔋","HIDRA":"💧","HIDRO GEL":"💦",
+  "PROTS":"💪","ISOLADOS":"🧪"
+};
+
+const LOJAS = [
+  {nome:"Amerifit – Osasco",ende:"R. Dona Primitiva Vianco, 704 - Osasco"},
+  {nome:"Armazém Cerealista – Al. Santos",ende:"Alameda Santos, 1091 - Cerqueira César"},
+  {nome:"Armazém Cerealista – Osasco / Rede Isabella",ende:"Av. dos Autonomistas, 1542 - Osasco"},
+  {nome:"Armazém Dona Idalina",ende:"Av. Portugal, 1109 - Centro - Santo André (ABC)"},
+  {nome:"Atacadão da ZL",ende:"R. Azevedo Soares, 553 - Vila Gomes Cardim"},
+  {nome:"Atacadão do Natural SP GRU",ende:"R. Luiz Faccini, 127 - Guarulhos"},
+  {nome:"Bio Mundo Braz Leme",ende:"Av. Braz Leme, 1200 - Casa Verde"},
+  {nome:"Bio Mundo Center Norte",ende:"Av. Otto Baumgart, 500 - Vila Guilherme"},
+  {nome:"Bio Mundo Jardins",ende:"R. da Consolação, 3202 - Cerqueira César"},
+  {nome:"Bio Mundo – Shop. Eldorado",ende:"Av. Rebouças, 3970"},
+  {nome:"Casa dos Cereais",ende:"R. Serra de Bragança, 505 - V. Gomes Cardim"},
+  {nome:"Centauro",ende:"R. Melo Freire - Tatuapé (SEM Nº)"},
+  {nome:"Centauro - Shopping ABC",ende:""},
+  {nome:"Centauro – Casalbuono",ende:"Tv. Casalbuono, 120 - Vila Guilherme"},
+  {nome:"Centauro – Domingos de Morais",ende:"R. Domingos de Morais, 2564"},
+  {nome:"Centauro – Faria Lima",ende:"Av. Brig. Faria Lima, 2232 - Jd. Paulistano"},
+  {nome:"Centauro – Francisco Mesquita",ende:"Av. Dr. Francisco Mesquita, 1000, Vila Prudente"},
+  {nome:"Centauro – Higienópolis",ende:"Av. Higienópolis, 618"},
+  {nome:"Centauro – JK 2041",ende:"Av. JK, 2041"},
+  {nome:"Centauro – Lauzane",ende:"R. Cons. Moreira de Barros, 2780 - Lauzane"},
+  {nome:"Centauro – Palestra Itália",ende:"R. Palestra Itália, 500 - Perdizes"},
+  {nome:"Centauro – Paulista",ende:"Av. Paulista, 1227"},
+  {nome:"Centauro – Paulo de Faria",ende:"R. Paulo de Faria, 133-167 - Tucuruvi"},
+  {nome:"Centauro – Roque Petroni (Morumbi)",ende:"Av. Roque Petroni Júnior, 1089"},
+  {nome:"Centauro – Shop. Eldorado",ende:"Av. Rebouças, 3970 - Loja 317"},
+  {nome:"Centauro – Shopping Anália Franco",ende:"Av. Reg. Feijó, 1739 - Tatuapé"},
+  {nome:"Centauro – Shopping Ibirapuera",ende:"Shopping Ibirapuera"},
+  {nome:"Centauro – Shopping Tietê",ende:"Av. Raimundo P. de Magalhães, 1465"},
+  {nome:"Centauro – Vila Prudente",ende:"R. Cap. Pacheco e Chaves, 313 - Vila Prudente"},
+  {nome:"Cerealli – Alphaville",ende:"Al. Araguaia, 762 - Shop. Flamingo - Alphaville"},
+  {nome:"Cerealli – Vila Leopoldina",ende:"R. Carlos Weber, 375 - Vila Leopoldina"},
+  {nome:"Corpo&Vida",ende:"R. Dona Januária, 60 - Vila Reg. Feijó"},
+  {nome:"Corpo&Vida – Golden Square",ende:"Av. Kennedy, 700 - São Bernardo (ABC)"},
+  {nome:"Corpo&Vida – Grand Plaza",ende:"Av. Industrial, 600 - Santo André (ABC)"},
+  {nome:"Corpo&Vida – Park Shop. São Caetano",ende:"Al. Terracota, 545 - São Caetano (ABC)"},
+  {nome:"Corpo&Vida – Plaza Sul",ende:"Pça Leonor Kaupa, 100 - Shop. Plaza Sul"},
+  {nome:"Corpo&Vida – Shopping ABC",ende:"Av. Pereira Barreto, 42 - Santo André (ABC)"},
+  {nome:"Corpo&Vida – Shopping Ibirapuera",ende:"Shopping Ibirapuera"},
+  {nome:"Cravo e Canela",ende:"R. Américo Brasiliense, 2174 - Chác. Sto Antônio"},
+  {nome:"DVitaminas",ende:"R. Topázio, 258 - Aclimação"},
+  {nome:"Delivery Cerealli – Granja Viana 2",ende:"Rod. Raposo Tavares km 22 - Cotia"},
+  {nome:"Divina Terra Alphaville",ende:"Al. Araguaia, 911 - Alphaville Industrial"},
+  {nome:"Divina Terra Perdizes",ende:"R. Des. do Vale, 172 - Perdizes"},
+  {nome:"Drogaraia – Iraé",ende:"Al. Iraé, 533 - Indianópolis"},
+  {nome:"Drogaraia – José Maria Lisboa",ende:"R. José Maria Lisboa, 645"},
+  {nome:"Drogaraia – Oscar Freire",ende:"R. Oscar Freire, 733"},
+  {nome:"Drogaraia – Teodoro Sampaio",ende:"R. Teodoro Sampaio, 612"},
+  {nome:"Drogaria Iguatemi – Faria Lima",ende:"Av. Brig. Faria Lima, 2232 - Jd. Paulistano"},
+  {nome:"Drogaria Iguatemi – JK 2041",ende:"Av. JK, 2041"},
+  {nome:"Drogaria Iguatemi – Lourenço Almeida",ende:"R. Lourenço de Almeida, 601, Vila Nova Conceição"},
+  {nome:"Drogasil – Afonso Schmidt",ende:"Al. Afonso Schmidt, 494 - Santa Teresinha"},
+  {nome:"Drogasil – Paulo de Faria",ende:"R. Paulo de Faria, 133-167 - Tucuruvi"},
+  {nome:"Empório Frutaria – Oscar Freire",ende:"R. Oscar Freire, 187"},
+  {nome:"Empório Magna Vita",ende:"Av. Diógenes Ribeiro de Lima, 2282"},
+  {nome:"Empório Maldonado",ende:"Av. Srg. Lourival A. de Souza, 197 - Jd. Anhanguera"},
+  {nome:"Empório Natural",ende:"Av. do Taboão, 4425 - Taboão"},
+  {nome:"Empório Quatro Estrelas",ende:"R. Caraíbas, 351 - Perdizes"},
+  {nome:"Empório do Arroz",ende:"Av. Mercúrio, 86/130 - Brás"},
+  {nome:"Energybar Bio Morumbi",ende:"Av. Giovanni Gronchi, 4415 - Vila Andrade"},
+  {nome:"Frutaria",ende:"Av. Hélio Pellegrino, 1000, Vila Nova Conceição"},
+  {nome:"Healthy Nutrition",ende:"Av. Lavandisca, 286 - Moema"},
+  {nome:"Hitomix",ende:"R. José Getúlio, 239 - Liberdade"},
+  {nome:"Hortisabor – Itaim",ende:"R. Tabapuã, 1026 - Itaim Bibi"},
+  {nome:"Hortisabor – Luís Góis",ende:"R. Luís Góis, 222"},
+  {nome:"Keep Running",ende:"R. Sena Madureira, 92 - Vila Mariana"},
+  {nome:"Kineo&Co",ende:"R. das Tabocas, 132 - Vila Madalena"},
+  {nome:"Live Well",ende:"Av. Nova Cantareira, 4038 - Tucuruvi"},
+  {nome:"Menfis Esportes",ende:"Pça das Orquídeas, 160 - Barueri"},
+  {nome:"Mundo Marketplace",ende:"Av. Dr. Chucri Zaidan, 902 - Vila Cordeiro"},
+  {nome:"Mundo Verde Vila Leo",ende:"R. Carlos Weber, 678 - Vila Leopoldina"},
+  {nome:"Mundo Verde – Alameda Santos",ende:"Alameda Santos, 221"},
+  {nome:"Mundo Verde – Bernardino de Campos",ende:"Av. Bernardino de Campos, 28"},
+  {nome:"Mundo Verde – Oscar Freire",ende:"R. Oscar Freire, 295"},
+  {nome:"Mundo Verde – Parque Shop. Barueri",ende:"R. Gen. Pedro R. da Silva, 400 - Barueri"},
+  {nome:"Naturalizei",ende:"Av. Cons. Carrão, 1977 - Vila Carrão"},
+  {nome:"Oba – Angélica 635",ende:"Av. Angélica, 635 - Santa Cecília"},
+  {nome:"Oba – Antônio Alves Barril",ende:"R. Antônio Alves Barril, 323 - Jd. Anália Franco"},
+  {nome:"Oba – Apinajés",ende:"R. Apinajés, 104 - Sumaré"},
+  {nome:"Oba – Apucarana",ende:"R. Apucarana, 1040 - V. Gomes Cardim"},
+  {nome:"Oba – Augusto Tolle",ende:"R. Augusto Tolle, 933 - Santana"},
+  {nome:"Oba – Azevedo Soares 1585",ende:"R. Azevedo Soares, 1585 - V. Gomes Cardim"},
+  {nome:"Oba – Cons. Rodrigues Alves",ende:"Av. Cons. Rodrigues Alves, 925"},
+  {nome:"Oba – Froben",ende:"R. Froben, 99 - Vila Leopoldina"},
+  {nome:"Oba – Gen. Ataliba Leonel",ende:"Av. Gen. Ataliba Leonel, 1155 - Santana"},
+  {nome:"Oba – Ibitirama",ende:"R. Ibitirama, 1269 - Vila Prudente"},
+  {nome:"Oba – Interlagos",ende:"Av. Interlagos, 500 - Jardim Umuarama"},
+  {nome:"Oba – JK 1830",ende:"Av. Pres. Juscelino Kubitschek, 1830"},
+  {nome:"Oba – Jesuíno Maciel",ende:"R. Dr. Jesuíno Maciel, 1285"},
+  {nome:"Oba – José da Silva Ribeiro",ende:"R. José da Silva Ribeiro, 31 - Vila Andrade"},
+  {nome:"Oba – Macuco",ende:"Av. Macuco, 655 A"},
+  {nome:"Oba – Nova Cantareira",ende:"Av. Nova Cantareira, 3640 - Tucuruvi"},
+  {nome:"Oba – Pamplona",ende:"R. Pamplona, 822"},
+  {nome:"Oba – Teodoro Sampaio",ende:"R. Teodoro Sampaio, 1424"},
+  {nome:"Oba – Tobias Barreto",ende:"R. Tobias Barreto, 735 - Belenzinho"},
+  {nome:"Oba – Vila Mascote",ende:"Av. Santa Catarina, 1415 - Vila Mascote"},
+  {nome:"Olive Natural",ende:"R. Frei Caneca, 785 - Consolação"},
+  {nome:"Panvel – Clodomiro Amazonas",ende:"R. Clodomiro Amazonas, 817"},
+  {nome:"Panvel – Homem de Melo",ende:"R. Dr. Homem de Melo, 494 - Perdizes"},
+  {nome:"Panvel – Paulista",ende:"Av. Paulista, 2073"},
+  {nome:"Princesa",ende:"R. São Bento, 259 - Centro"},
+  {nome:"Quality Nutrition",ende:"Pça Cidade Jardim, 766"},
+  {nome:"Querência Suplementos",ende:"Tv. Casalbuono, 120 - Shop. Center Norte"},
+  {nome:"Quitanda",ende:"R. Mateus Grou, 159"},
+  {nome:"Raia – Afonso Braz",ende:"R. Afonso Braz, 610"},
+  {nome:"Raia – Angélica 1062",ende:"Av. Angélica, 1062 - Santa Cecília"},
+  {nome:"Raia – Angélica 2091",ende:"Av. Angélica, 2091 - Consolação"},
+  {nome:"Raia – Braz Leme",ende:"Av. Braz Leme, 2097 - Santana"},
+  {nome:"Raia – Campo Limpo",ende:"Estr. do Campo Limpo, 930 - Vila Prel"},
+  {nome:"Raia – Capão Redondo",ende:"Av. Comendador Sant'Anna, 34 - Capão Redondo"},
+  {nome:"Raia – Casalbuono",ende:"Tv. Casalbuono, 120 - Vila Guilherme"},
+  {nome:"Raia – Cons. Rodrigues Alves",ende:"Av. Cons. Rodrigues Alves, 853"},
+  {nome:"Raia – Cristóvão Pereira",ende:"R. Cristóvão Pereira, 1533 - Campo Belo"},
+  {nome:"Raia – Demóstenes",ende:"R. Demóstenes, 755 - Campo Belo"},
+  {nome:"Raia – Frei Caneca",ende:"R. Frei Caneca, 462 - Consolação"},
+  {nome:"Raia – Jardim das Laranjeiras",ende:"Pça Del. Amoroso Neto - Jd. Laranjeiras"},
+  {nome:"Raia – Nova Cantareira",ende:"Av. Nova Cantareira, 978 - Tucuruvi"},
+  {nome:"Raia – Nova Cidade",ende:"R. Nova Cidade, 344 - Vila Olímpia"},
+  {nome:"Raia – Nova York",ende:"R. Nova York, 528 - Brooklin"},
+  {nome:"Raia – Pres. Altino",ende:"Av. Pres. Altino, 472 - Jaguaré"},
+  {nome:"Raia – Treze de Maio",ende:"R. Treze de Maio, 1947"},
+  {nome:"Santa Luzia",ende:"Alameda Lorena, 1471"},
+  {nome:"Sport & Nutri Suplementos",ende:"Calç. das Margaridas, 78 - Barueri"},
+  {nome:"Varanda",ende:"Pça Dep. Dario de Barros, 15, Cidade Jardim"},
+  {nome:"Varanda Moema",ende:"Al. dos Anapurus, 423 - Indianópolis"},
+  {nome:"Velocitá",ende:"R. Eleonora Cintra, 341 - Jd. Anália Franco"},
+  {nome:"Velocitá – Pavão",ende:"Av. Pavão, 342 - Moema"},
+  {nome:"Velocitá – Pedroso de Morais",ende:"Av. Pedroso de Morais, 1193"},
+  {nome:"Vila das Frutas – Abraão de Morais",ende:"Av. Prof. Abraão de Morais, 2350"},
+  {nome:"Vila das Frutas – Ricardo Jafet",ende:"Av. Dr. Ricardo Jafet, 1500"},
+  {nome:"Vila das Frutas – Vila Mariana",ende:"Av. Prof. Noé Azevedo, 38 - Vila Mariana"},
+  {nome:"Vila das Frutas – Vila Romana",ende:"R. Cerro Corá, 1100 - Vila Romana"},
+  {nome:"Virtus Saúde e Performance",ende:"Pça Samuel Sabatini, 200 - Shop. Metrópole - S.Bernardo (ABC)"},
+];
+
+/* ─── ESTADO ─── */
+let S = { loja:"", lojaCustom:"", foraRoteiro:false, data:"", obsInicial:"", obsFinal:"", fotoAntesB64:null, fotoDepoisB64:null, produtos:[] };
+let catAtiva = null;
+let stepLabels = ["Identificação","Foto — antes","Produtos","Foto — depois","Revisar e enviar"];
+
+/* ─── INIT ─── */
+document.addEventListener("DOMContentLoaded", () => {
+  verificarAuthDia();
+  const hoje = new Date();
+  document.getElementById("data-visita").value = hoje.toISOString().split("T")[0];
+  document.getElementById("header-date").textContent =
+    hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
+
+  const sel = document.getElementById("loja-select");
+  LOJAS.forEach(l => {
+    const o = document.createElement("option");
+    o.value = l.nome;
+    o.textContent = l.ende ? l.nome + "  (" + l.ende + ")" : l.nome;
+    sel.appendChild(o);
+  });
+
+  // Build categoria grid
+  const grid = document.getElementById("cat-grid");
+  Object.keys(CATALOGO).forEach(cat => {
+    const pill = document.createElement("button");
+    pill.className = "cat-pill";
+    pill.dataset.cat = cat;
+    pill.innerHTML = `<span class="cat-icon">${CAT_ICONS[cat]||"📦"}</span>${cat}`;
+    pill.onclick = () => selectCat(cat, pill);
+    grid.appendChild(pill);
+  });
+
+  if (!FB_OK) document.getElementById("firebase-banner").style.display="block";
+  else document.getElementById("firebase-banner").style.display="none";
+});
+
+/* ─── CATEGORIA SELECT ─── */
+function selectCat(cat, pill) {
+  catAtiva = cat;
+  document.querySelectorAll(".cat-pill").forEach(p => p.classList.remove("selected"));
+  pill.classList.add("selected");
+
+  const sel = document.getElementById("prod-select");
+  sel.innerHTML = `<option value="">Selecionar produto…</option>`;
+  CATALOGO[cat].forEach((p,i) => {
+    const o = document.createElement("option");
+    o.value = i; o.textContent = p.desc;
+    sel.appendChild(o);
+  });
+  document.getElementById("prod-select-field").style.display = "block";
+}
+
+/* ─── ADICIONAR PRODUTO ─── */
+window.adicionarProduto = function() {
+  const sel = document.getElementById("prod-select");
+  const idx = parseInt(sel.value);
+  if (isNaN(idx) || sel.value === "") { toast("Selecione um produto","err"); return; }
+  const p = CATALOGO[catAtiva][idx];
+  S.produtos.push({ sku: p.sku, desc: p.desc, cat: catAtiva, lotes: [{qtd:"",validade:""}] });
+  renderProdutos();
+  sel.value = "";
+  document.getElementById("empty-prod").style.display = "none";
+};
+
+/* ─── RENDER PRODUTOS ─── */
+function renderProdutos() {
+  const lista = document.getElementById("produtos-lista");
+  // Remove cards existentes
+  lista.querySelectorAll(".produto-card").forEach(c => c.remove());
+  document.getElementById("empty-prod").style.display = S.produtos.length ? "none" : "block";
+
+  S.produtos.forEach((p, pi) => {
+    const card = document.createElement("div");
+    card.className = "produto-card";
+    card.innerHTML = `
+      <div class="produto-card-head">
+        <div>
+          <span class="produto-cat-tag">${p.cat}</span>
+          <div class="produto-nome">${p.desc}</div>
+          <div class="produto-sku">${p.sku}</div>
+        </div>
+        <button class="btn-remove-prod" onclick="removerProduto(${pi})">×</button>
+      </div>
+      <div class="produto-card-body">
+        <div class="lotes-header">
+          <span>Qtd</span><span>Validade</span><span></span>
+        </div>
+        <div id="lotes-${pi}"></div>
+        <button class="btn-add-lote" onclick="addLote(${pi})">+ validade diferente</button>
+      </div>
+    `;
+    lista.appendChild(card);
+    renderLotes(pi);
+  });
+}
+
+function renderLotes(pi) {
+  const cont = document.getElementById(`lotes-${pi}`);
+  if (!cont) return;
+  cont.innerHTML = "";
+  S.produtos[pi].lotes.forEach((l, li) => {
+    const row = document.createElement("div");
+    row.className = "lote-row";
+    row.innerHTML = `
+      <input type="number" min="0" placeholder="0" value="${l.qtd}"
+        oninput="S.produtos[${pi}].lotes[${li}].qtd=this.value">
+      <input type="date" value="${l.validade}"
+        oninput="S.produtos[${pi}].lotes[${li}].validade=this.value">
+      <button class="btn-remove-lote" onclick="remLote(${pi},${li})">×</button>
+    `;
+    cont.appendChild(row);
+  });
+}
+
+window.addLote = (pi) => { S.produtos[pi].lotes.push({qtd:"",validade:""}); renderLotes(pi); };
+window.remLote = (pi,li) => {
+  if (S.produtos[pi].lotes.length===1) return;
+  S.produtos[pi].lotes.splice(li,1); renderLotes(pi);
+};
+window.removerProduto = (pi) => { S.produtos.splice(pi,1); renderProdutos(); };
+
+/* ─── FOTO ─── */
+window.handleFoto = (input, tipo) => {
+  const file = input.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = e => {
+    const b64 = e.target.result;
+    const box = document.getElementById(`box-${tipo}`);
+    box.classList.add("has-img");
+    box.querySelector("img")?.remove();
+    box.querySelector(".foto-overlay")?.remove();
+    const img = document.createElement("img"); img.src = b64; box.appendChild(img);
+    const ov = document.createElement("div"); ov.className="foto-overlay"; ov.textContent="✓ Foto capturada"; box.appendChild(ov);
+    if (tipo==="antes") S.fotoAntesB64=b64; else S.fotoDepoisB64=b64;
+  };
+  r.readAsDataURL(file);
+};
+
+/* ─── RESUMO ─── */
+window.prepResumo = () => {
+  S.obsFinal = document.getElementById("obs-final").value;
+  const dataFmt = S.data ? new Date(S.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+  let rowsHTML = `
+    <div class="resumo-row"><span class="key">Loja</span><span class="val">${S.loja}</span></div>
+    <div class="resumo-row"><span class="key">Data</span><span class="val">${dataFmt}</span></div>
+    <div class="resumo-row"><span class="key">Promotor</span><span class="val">Felipe</span></div>
+  `;
+  if (S.obsInicial) rowsHTML += `<div class="resumo-row"><span class="key">Obs. inicial</span><span class="val">${S.obsInicial}</span></div>`;
+  if (S.obsFinal)   rowsHTML += `<div class="resumo-row"><span class="key">Obs. final</span><span class="val">${S.obsFinal}</span></div>`;
+  document.getElementById("res-loja").innerHTML = rowsHTML;
+
+  const tA = document.getElementById("thumb-antes");
+  const tD = document.getElementById("thumb-depois");
+  tA.innerHTML = S.fotoAntesB64  ? `<img src="${S.fotoAntesB64}">` : `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;">Sem foto</div>`;
+  tD.innerHTML = S.fotoDepoisB64 ? `<img src="${S.fotoDepoisB64}">` : `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;">Sem foto</div>`;
+
+  document.getElementById("res-prod-title").textContent = `Produtos (${S.produtos.length})`;
+  if (!S.produtos.length) {
+    document.getElementById("res-produtos").innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">Nenhum produto registrado</div>`;
+  } else {
+    let html = "";
+    S.produtos.forEach(p => {
+      const total = p.lotes.reduce((s,l)=>s+(parseInt(l.qtd)||0),0);
+      const lotesTxt = p.lotes.map(l=>`${l.qtd||"?"}un · ${l.validade||"sem data"}`).join(" / ");
+      html += `<div class="prod-resumo-item">
+        <div>
+          <span class="produto-cat-tag">${p.cat}</span>
+          <div class="prod-resumo-nome">${p.desc}</div>
+          <div class="prod-resumo-lotes">${lotesTxt} · Total: <strong>${total} un.</strong></div>
+        </div>
+      </div>`;
+    });
+    document.getElementById("res-produtos").innerHTML = html;
+  }
+};
+
+
+/* ─── FORA DO ROTEIRO ─── */
+window.toggleForaRoteiro = function() {
+  S.foraRoteiro = !S.foraRoteiro;
+  const check = document.getElementById("fora-check");
+  const wrap  = document.getElementById("loja-select-wrap");
+  const custom = document.getElementById("loja-custom");
+
+  if (S.foraRoteiro) {
+    check.style.background    = "var(--accent)";
+    check.style.borderColor   = "var(--accent)";
+    check.textContent          = "✓";
+    check.style.color          = "#fff";
+    wrap.style.display         = "none";
+    custom.style.display       = "block";
+    custom.focus();
+    document.getElementById("loja-select").value = "";
+  } else {
+    check.style.background    = "var(--card)";
+    check.style.borderColor   = "var(--border)";
+    check.textContent          = "";
+    wrap.style.display         = "block";
+    custom.style.display       = "none";
+    custom.value               = "";
+    S.lojaCustom               = "";
+  }
+};
+
+/* ─── NAVEGAÇÃO ─── */
+window.goTo = (step) => {
+  if (step===1) {
+    if (S.foraRoteiro) {
+      S.loja = S.lojaCustom.trim() ? "⚠️ Fora do roteiro: " + S.lojaCustom.trim() : "";
+    } else {
+      S.loja = document.getElementById("loja-select").value;
+    }
+    S.data = document.getElementById("data-visita").value;
+    S.obsInicial = document.getElementById("obs-inicial").value;
+    if (!S.loja) {
+      toast(S.foraRoteiro ? "Digite o nome da loja" : "Selecione uma loja","err");
+      return;
+    }
+    if (!S.data) { toast("Selecione a data","err"); return; }
+  }
+  document.querySelectorAll(".screen").forEach((s,i) => s.classList.toggle("active", i===step));
+  for (let i=0; i<5; i++) {
+    const seg = document.getElementById(`seg-${i}`);
+    seg.className = "track-seg" + (i<step?" done":i===step?" active":"");
+  }
+  const sl = document.getElementById("step-label");
+  sl.innerHTML = `Passo <span>${step+1}</span> de 5 — ${stepLabels[step]}`;
+  window.scrollTo({top:0,behavior:"smooth"});
+};
+
+/* ─── ENVIO ─── */
+window.enviar = async () => {
+  const btn = document.getElementById("btn-enviar");
+  const txt = document.getElementById("btn-txt");
+  const spin = document.getElementById("btn-spin");
+  btn.disabled=true; txt.textContent="Enviando…"; spin.style.display="block";
+
+  const payload = {
+    loja: S.loja, data: S.data, obsInicial: S.obsInicial, obsFinal: S.obsFinal,
+    promotor: "Felipe", timestamp: new Date().toISOString(),
+    produtos: S.produtos.map(p=>({sku:p.sku, desc:p.desc, cat:p.cat, lotes:p.lotes}))
+  };
+
+  if (FB_OK) {
+    try {
+      const {initializeApp}              = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const {getFirestore,collection,addDoc} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      const app = initializeApp(FB);
+      const db  = getFirestore(app);
+      await addDoc(collection(db,"visitas"), payload);
+      toast("✓ Registro salvo!","ok");
+      mostrarBotaoZap();
+    } catch(e) {
+      console.error(e); salvarLocal(payload);
+      toast("Salvo localmente (sem conexão)","err");
+      mostrarBotaoZap();
+    }
+  } else {
+    salvarLocal(payload);
+    toast("✓ Salvo localmente","ok");
+    mostrarBotaoZap();
+  }
+  btn.disabled=false; txt.textContent="Salvar registro"; spin.style.display="none";
+};
+
+function mostrarBotaoZap() {
+  document.getElementById("btn-enviar").style.display = "none";
+  document.getElementById("btn-zap-wrap").style.display = "block";
+}
+
+window.abrirZap = function() {
+  const dataFmt = S.data ? new Date(S.data+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}) : "—";
+
+  let msg = `🟠 *RELATÓRIO DE VISITA — DOBRO*\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `🏪 *Loja:* ${S.loja}\n`;
+  msg += `📅 *Data:* ${dataFmt}\n`;
+  msg += `👤 *Promotor:* Felipe\n`;
+
+  if (S.obsInicial) msg += `\n📋 *Situação inicial:*\n${S.obsInicial}\n`;
+  if (S.obsFinal)   msg += `\n✅ *Ação realizada:*\n${S.obsFinal}\n`;
+
+  if (S.produtos.length > 0) {
+    msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `📦 *PRODUTOS VERIFICADOS (${S.produtos.length})*\n`;
+    S.produtos.forEach((p, i) => {
+      const total = p.lotes.reduce((s,l)=>s+(parseInt(l.qtd)||0),0);
+      msg += `\n${i+1}. *${p.desc}*\n`;
+      msg += `   SKU: \`${p.sku}\`\n`;
+      p.lotes.forEach(l => {
+        const vFmt = l.validade ? new Date(l.validade+"T12:00:00").toLocaleDateString("pt-BR") : "sem data";
+        msg += `   • ${l.qtd||"?"}un → val. ${vFmt}\n`;
+      });
+      msg += `   Total: ${total} unidades\n`;
+    });
+  }
+
+  msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `📸 _Fotos em anexo_`;
+
+  // Copia para área de transferência
+  try {
+    navigator.clipboard.writeText(msg).then(() => {
+      toast("✓ Resumo copiado! Cole no grupo.","ok");
+    });
+  } catch(e) {
+    // fallback para navegadores mais antigos
+    const el = document.createElement("textarea");
+    el.value = msg; document.body.appendChild(el);
+    el.select(); document.execCommand("copy");
+    document.body.removeChild(el);
+    toast("✓ Resumo copiado!","ok");
+  }
+
+  // Abre o grupo após 800ms (tempo de ver o toast)
+  setTimeout(() => {
+    window.open("https://chat.whatsapp.com/Jo6EATXHmbq0gi6q63XuVn", "_blank");
+  }, 800);
+};
+
+function salvarLocal(p) {
+  try {
+    const arr = JSON.parse(localStorage.getItem("visitas_pendentes")||"[]");
+    arr.push({ts:Date.now(),payload:p});
+    localStorage.setItem("visitas_pendentes",JSON.stringify(arr));
+  } catch(e){}
+}
+
+function reset() {
+  S = {loja:"",data:"",obsInicial:"",obsFinal:"",fotoAntesB64:null,fotoDepoisB64:null,produtos:[]};
+  catAtiva = null;
+  document.getElementById("loja-select").value="";
+  document.getElementById("obs-inicial").value="";
+  document.getElementById("obs-final").value="";
+  document.getElementById("box-antes").classList.remove("has-img");
+  document.getElementById("box-depois").classList.remove("has-img");
+  document.querySelectorAll(".cat-pill").forEach(p=>p.classList.remove("selected"));
+  document.getElementById("prod-select-field").style.display="none";
+  renderProdutos();
+  goTo(0);
+}
+
+function toast(msg, tipo="") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = `toast ${tipo}`;
+  t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),3000);
+}
+
+/* ─── PIN ─── */
+const PIN_CORRETO = "2026";
+const PIN_KEY     = "dobro_auth_dia";
+let pinDigitado   = [];
+
+function verificarAuthDia() {
+  try {
+    const salvo = localStorage.getItem(PIN_KEY);
+    if (salvo) {
+      const { dia } = JSON.parse(salvo);
+      const hoje = new Date().toISOString().split("T")[0];
+      if (dia === hoje) {
+        document.getElementById("senha-screen").classList.add("hidden");
+        return;
+      }
+    }
+  } catch(e) {}
+  document.getElementById("senha-screen").classList.remove("hidden");
+}
+
+window.digitarSenha = function(num) {
+  if (pinDigitado.length >= PIN_CORRETO.length) return;
+  pinDigitado.push(String(num));
+  atualizarDots();
+  if (pinDigitado.length === PIN_CORRETO.length) {
+    setTimeout(verificarPin, 150);
+  }
+};
+
+window.apagarSenha = function() {
+  if (pinDigitado.length === 0) return;
+  pinDigitado.pop();
+  atualizarDots();
+  document.getElementById("senha-erro").textContent = "";
+};
+
+function atualizarDots() {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById("dot-" + i);
+    dot.classList.remove("filled", "erro");
+    if (i < pinDigitado.length) dot.classList.add("filled");
+  }
+}
+
+function verificarPin() {
+  const tentativa = pinDigitado.join("");
+  if (tentativa === PIN_CORRETO) {
+    const hoje = new Date().toISOString().split("T")[0];
+    try { localStorage.setItem(PIN_KEY, JSON.stringify({ dia: hoje })); } catch(e) {}
+    document.getElementById("senha-screen").classList.add("hidden");
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const dot = document.getElementById("dot-" + i);
+      dot.classList.remove("filled");
+      dot.classList.add("erro");
+    }
+    document.getElementById("senha-erro").textContent = "PIN incorreto. Tente novamente.";
+    setTimeout(() => {
+      pinDigitado = [];
+      atualizarDots();
+    }, 800);
+  }
+}
+
+</script>
+</body>
+</html>
