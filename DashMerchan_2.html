@@ -438,7 +438,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
       <span class="nav-icon">👥</span> Promotores
     </div>
     <div class="nav-item" onclick="showPage('rotas',this)">
-      <span class="nav-icon">🗓️</span> Calendário de Rotas
+      <span class="nav-icon">📍</span> Rotas & Cobertura
     </div>
     <div class="nav-item" onclick="showPage('relatorios',this)">
       <span class="nav-icon">📊</span> Relatórios
@@ -765,9 +765,87 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
     <div class="page" id="page-rotas">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
         <div>
-          <h1 style="font-size:22px;font-weight:700;letter-spacing:-.5px;">Calendário de Rotas</h1>
-          <p style="color:var(--muted);font-size:14px;margin-top:4px;">Roteiro programado vs. visitas realizadas.</p>
+          <h1 style="font-size:22px;font-weight:700;letter-spacing:-.5px;">Rotas & Cobertura</h1>
+          <p style="color:var(--muted);font-size:14px;margin-top:4px;">Cobertura de promotoria (estrutural) e de atendimento (visitas realizadas vs. necessárias).</p>
         </div>
+      </div>
+
+      <!-- Filtros do painel de cobertura -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+          <div style="min-width:140px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor</label>
+            <select id="cob-promotor" onchange="renderCobertura()" class="filter-select" style="width:100%;"><option value="">Todos</option></select>
+          </div>
+          <div style="min-width:120px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Estado</label>
+            <select id="cob-uf" onchange="renderCobertura()" class="filter-select" style="width:100%;"><option value="">Todos</option></select>
+          </div>
+          <div style="min-width:160px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Canal</label>
+            <select id="cob-canal" onchange="renderCobertura()" class="filter-select" style="width:100%;"><option value="">Todos</option></select>
+          </div>
+          <div style="min-width:130px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Mês de referência</label>
+            <input type="month" id="cob-mes" onchange="renderCobertura()" class="filter-select" style="width:100%;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Cobertura de PROMOTORIA (estrutural) -->
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 10px;">Cobertura de promotoria (estrutural)</h3>
+      <div class="stats-row" style="margin-bottom:20px;">
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Cobertura de promotoria</span><span class="stat-icon">🏪</span></div>
+          <div class="stat-val c-accent" id="cob-prom-perc">—</div>
+          <div class="stat-sub" id="cob-prom-sub">lojas com promotor / total</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Total de lojas</span><span class="stat-icon">📦</span></div>
+          <div class="stat-val" id="cob-total">—</div>
+          <div class="stat-sub">no filtro</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Com promotor</span><span class="stat-icon">✅</span></div>
+          <div class="stat-val c-green" id="cob-com">—</div>
+          <div class="stat-sub">atendidas por alguém</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Sem promotor</span><span class="stat-icon">⚠️</span></div>
+          <div class="stat-val c-yellow" id="cob-sem">—</div>
+          <div class="stat-sub">backlog a atribuir</div>
+        </div>
+      </div>
+
+      <!-- Cobertura de ATENDIMENTO (visitas) -->
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 10px;">Cobertura de atendimento (visitas no mês de referência)</h3>
+      <div class="stats-row" style="margin-bottom:12px;">
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Cobertura de atendimento</span><span class="stat-icon">📍</span></div>
+          <div class="stat-val c-green" id="cob-atend-perc">—</div>
+          <div class="stat-sub" id="cob-atend-sub">visitas feitas / necessárias</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Visitas necessárias</span><span class="stat-icon">🎯</span></div>
+          <div class="stat-val c-accent" id="cob-nec">—</div>
+          <div class="stat-sub">pela frequência das lojas</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Visitas realizadas</span><span class="stat-icon">✔️</span></div>
+          <div class="stat-val c-green" id="cob-real">—</div>
+          <div class="stat-sub">registradas no mês</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Fora do roteiro</span><span class="stat-icon">🟡</span></div>
+          <div class="stat-val c-yellow" id="cob-fora">—</div>
+          <div class="stat-sub">lojas não atreladas</div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 20px;">Necessárias/mês por loja: Semanal = 4, Quinzenal = 2, Mensal = 1. "Fora do roteiro" = visitas a lojas que não estão atreladas ao promotor.</p>
+
+      <details style="margin-bottom:20px;">
+        <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--accent);">📥 Importar roteiro antigo / listagem detalhada por loja</summary>
+        <div style="margin-top:16px;">
         <label style="background:var(--accent);color:#fff;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:inline-flex;align-items:center;gap:6px;">
           📥 Importar roteiro (Excel)
           <input type="file" id="rotas-input" accept=".xlsx,.xls" style="display:none;" onchange="importarRoteiro(this)">
@@ -862,6 +940,8 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
 
       <!-- Detalhe do dia (abre ao clicar) -->
       <div id="dia-detalhe" style="display:none;margin-top:16px;"></div>
+        </div>
+      </details>
     </div>
 
     <!-- ══ RELATÓRIOS ══ -->
@@ -1055,7 +1135,7 @@ function lojaComEnde(v) {
   return ende ? nome + " — " + ende : nome;
 }
 let vencFilter = "all";
-let pageTitles = { visitas:["Visitas","Histórico completo de registros"], vencimentos:["Vencimentos","Lotes ordenados por urgência"], lojas:["Por loja","Histórico agrupado por ponto de venda"], mpdv:["Material de Ponto de Venda","Registros de positivação de MPdV"], precos:["Estudo de Preços","Preço médio de mercado por categoria"], cadastro:["Cadastro de Lojas","Importe a base e atribua lojas aos promotores"], promotores:["Promotores","Cadastre ou desative promotores"], painel:["Painel de Controle","Configure quais telas o promotor vê"] , rotas:["Calendário de Rotas","Roteiro programado vs. visitas realizadas"], relatorios:["Relatórios","Exporte os dados em Excel"]};
+let pageTitles = { visitas:["Visitas","Histórico completo de registros"], vencimentos:["Vencimentos","Lotes ordenados por urgência"], lojas:["Por loja","Histórico agrupado por ponto de venda"], mpdv:["Material de Ponto de Venda","Registros de positivação de MPdV"], precos:["Estudo de Preços","Preço médio de mercado por categoria"], cadastro:["Cadastro de Lojas","Importe a base e atribua lojas aos promotores"], promotores:["Promotores","Cadastre ou desative promotores"], painel:["Painel de Controle","Configure quais telas o promotor vê"] , rotas:["Rotas & Cobertura","Cobertura de promotoria e de atendimento"], relatorios:["Relatórios","Exporte os dados em Excel"]};
 
 /* ─── INIT ─── */
 document.addEventListener("DOMContentLoaded", () => {
@@ -2145,10 +2225,130 @@ window.abrirDiaRota = function(dateStr) {
   det.scrollIntoView({behavior:"smooth", block:"nearest"});
 };
 
+// Visitas necessárias por mês conforme a frequência
+function visitasNecessariasMes(freq) {
+  const f = (freq||"").toLowerCase();
+  if (f.includes("seman")) return 4;
+  if (f.includes("quinzen")) return 2;
+  if (f.includes("mensal") || f.includes("mês") || f.includes("mes")) return 1;
+  return 1; // default
+}
+
+function renderCobertura() {
+  // Popula filtros (uma vez)
+  popularFiltrosCobertura();
+
+  const fProm = document.getElementById("cob-promotor")?.value || "";
+  const fUF = document.getElementById("cob-uf")?.value || "";
+  const fCanal = document.getElementById("cob-canal")?.value || "";
+  const mes = document.getElementById("cob-mes")?.value || "";
+
+  // Lojas no filtro (estado/canal; promotor entra na lógica de cada análise)
+  const lojasFiltro = LOJAS_DB.filter(l => {
+    if (fUF && (l.uf||"") !== fUF) return false;
+    if (fCanal && (l.canal||"") !== fCanal) return false;
+    return true;
+  });
+
+  // ── COBERTURA DE PROMOTORIA (estrutural) ──
+  // Se filtrar por promotor, "com promotor" = lojas atreladas a ele; senão = lojas com qualquer promotor
+  let base = lojasFiltro;
+  let comProm, semProm, total;
+  if (fProm) {
+    // No contexto de um promotor, o universo é: lojas atreladas a ele (com) + as sem promotor no filtro (potencial)
+    comProm = base.filter(l => (l.promotores||[]).includes(fProm)).length;
+    semProm = base.filter(l => !(l.promotores||[]).length).length;
+    total = comProm + semProm;
+  } else {
+    comProm = base.filter(l => (l.promotores||[]).length > 0).length;
+    semProm = base.filter(l => !(l.promotores||[]).length).length;
+    total = base.length;
+  }
+  const percProm = total > 0 ? Math.round(comProm/total*100) : 0;
+  document.getElementById("cob-prom-perc").textContent = percProm + "%";
+  document.getElementById("cob-prom-sub").textContent = `${comProm} de ${total} lojas`;
+  document.getElementById("cob-total").textContent = total;
+  document.getElementById("cob-com").textContent = comProm;
+  document.getElementById("cob-sem").textContent = semProm;
+
+  // ── COBERTURA DE ATENDIMENTO (visitas) ──
+  // Lojas atreladas a promotor (respeitando filtro de promotor/UF/canal)
+  const lojasAtreladas = lojasFiltro.filter(l => {
+    if (!(l.promotores||[]).length) return false;
+    if (fProm && !(l.promotores||[]).includes(fProm)) return false;
+    return true;
+  });
+  // Visitas necessárias = soma das frequências
+  let necessarias = 0;
+  lojasAtreladas.forEach(l => { necessarias += visitasNecessariasMes(l.freq); });
+
+  // Visitas realizadas no mês de referência
+  const [ano, m] = mes ? mes.split("-").map(Number) : [null,null];
+  function noMes(dataStr) {
+    if (!mes) return true; // sem mês = todas
+    if (!dataStr) return false;
+    return dataStr.startsWith(mes);
+  }
+  // Casa visita → loja atrelada (por nome+endereço)
+  const chavesAtreladas = new Set(lojasAtreladas.map(l => chaveLojaCob(l.nome, l.ende)));
+  const nomesPromotores = new Set(lojasAtreladas.flatMap(l => l.promotores||[]));
+
+  let realizadas = 0, foraRoteiro = 0;
+  VISITAS.forEach(v => {
+    if (!noMes(v.data)) return;
+    if (fProm && v.promotor !== fProm) return;
+    // se filtro de promotor vazio, considera só visitas de promotores que têm lojas no filtro
+    if (!fProm && nomesPromotores.size && !nomesPromotores.has(v.promotor)) return;
+    const chaveV = chaveLojaCob(v.loja, v.lojaEnde);
+    if (chavesAtreladas.has(chaveV)) realizadas++;
+    else foraRoteiro++;
+  });
+
+  const percAtend = necessarias > 0 ? Math.round(realizadas/necessarias*100) : 0;
+  document.getElementById("cob-atend-perc").textContent = percAtend + "%";
+  document.getElementById("cob-atend-sub").textContent = `${realizadas} de ${necessarias} visitas`;
+  document.getElementById("cob-nec").textContent = necessarias;
+  document.getElementById("cob-real").textContent = realizadas;
+  document.getElementById("cob-fora").textContent = foraRoteiro;
+}
+
+function chaveLojaCob(nome, ende) {
+  const limpar = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+  const num = (ende||"").match(/\d{1,6}/);
+  return limpar(nome) + "|" + (num?num[0]:"");
+}
+
+function popularFiltrosCobertura() {
+  // Promotores
+  const selP = document.getElementById("cob-promotor");
+  if (selP && selP.options.length <= 1) {
+    const nomes = new Set(PROMOTORES_DB.map(p=>p.nome));
+    LOJAS_DB.forEach(l => (l.promotores||[]).forEach(p=>nomes.add(p)));
+    selP.innerHTML = `<option value="">Todos</option>` + [...nomes].sort().map(n=>`<option value="${n}">${n}</option>`).join("");
+  }
+  // UFs
+  const selU = document.getElementById("cob-uf");
+  if (selU && selU.options.length <= 1) {
+    const ufs = [...new Set(LOJAS_DB.map(l=>l.uf).filter(Boolean))].sort();
+    selU.innerHTML = `<option value="">Todos</option>` + ufs.map(u=>`<option value="${u}">${u}</option>`).join("");
+  }
+  // Canais
+  const selC = document.getElementById("cob-canal");
+  if (selC && selC.options.length <= 1) {
+    const canais = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort();
+    selC.innerHTML = `<option value="">Todos</option>` + canais.map(c=>`<option value="${c}">${c}</option>`).join("");
+  }
+  // Mês default = atual
+  const selM = document.getElementById("cob-mes");
+  if (selM && !selM.value) { const h=new Date(); selM.value = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,"0")}`; }
+}
+
+
 async function renderRotas() {
   await carregarRoteiro();
   await carregarAlocacoes();
   await carregarRotasStatus();
+  renderCobertura();
   // Popula promotores
   const sel = document.getElementById("rotas-promotor");
   const atual = sel.value;
@@ -2545,14 +2745,15 @@ window.exportarBaseLojas = function() {
   if (!LOJAS_DB.length) { alert("Nenhuma loja na base para exportar."); return; }
   // Formato idêntico ao que o dash importa: Rede / Nome da Loja | Endereço | CEP | Frequência de Promotoria | Vendedor
   const linhas = LOJAS_DB.map(l => ({
-    "Rede / Nome da Loja": l.nome || "",
+    "Nome Fantasia": l.nome || "",
     "Endereço": l.ende || "",
-    "CEP": l.cep || "",
-    "Frequência de Promotoria": l.freq || "",
-    "Vendedor": (l.promotores||[]).join(", ")
+    "UF": l.uf || "",
+    "Canal": l.canal || "",
+    "Frequência necessária (meta)": l.freq || "",
+    "Promotor": (l.promotores||[]).join(", ")
   }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Base Promotoria");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Base Consolidada");
   XLSX.writeFile(wb, "Base_Lojas_Dobro.xlsx");
 };
 
@@ -2611,12 +2812,13 @@ window.importarExcel = function(input) {
     try {
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:"array"});
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      // Procura a aba "Base Consolidada" ou usa a primeira
+      let wsName = wb.SheetNames.find(n => n.toLowerCase().includes("consolidada") || n.toLowerCase().includes("base")) || wb.SheetNames[0];
+      const ws = wb.Sheets[wsName];
       const rows = XLSX.utils.sheet_to_json(ws, {defval:""});
 
       if (!rows.length) { status.textContent="⚠️ Planilha vazia."; status.style.background="rgba(245,158,11,.1)"; status.style.color="var(--yellow)"; return; }
 
-      // Mapeia colunas (tolerante a variações de nome)
       function pega(row, ...nomes) {
         for (const n of nomes) {
           const k = Object.keys(row).find(k => k.toLowerCase().trim() === n.toLowerCase().trim());
@@ -2625,47 +2827,63 @@ window.importarExcel = function(input) {
         return "";
       }
 
+      // Chave de deduplicação: nome + número do endereço (igual ao crosscheck do resto do sistema)
+      function chaveLoja(nome, ende) {
+        const limpar = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+        const num = (ende||"").match(/\d{1,6}/);
+        return limpar(nome) + "|" + (num?num[0]:"");
+      }
+      // Conjunto das lojas já existentes
+      const existentesChaves = new Set(LOJAS_DB.map(l => chaveLoja(l.nome, l.ende)));
+
       status.textContent = `⏳ Importando ${rows.length} lojas…`;
       const db = firebase.firestore();
-      const promotoresNovos = new Set(PROMOTORES_DB.map(p=>p.nome));
+      const promotoresNovos = new Set();
       let batch = db.batch();
-      let count = 0, total = 0;
+      let count = 0, criadas = 0, puladas = 0;
 
       for (const row of rows) {
-        const nome = pega(row, "Rede / Nome da Loja", "Nome da Loja", "Loja", "Rede");
+        const nome = pega(row, "Nome Fantasia", "Rede / Nome da Loja", "Nome da Loja", "Loja", "Rede");
         if (!nome) continue;
         const ende = pega(row, "Endereço", "Endereco", "End");
+        const uf   = pega(row, "UF", "Estado");
+        const canal= pega(row, "Canal", "Rede");
+        const freq = pega(row, "Frequência necessária (meta)", "Frequência de Promotoria", "Frequência necessária", "Frequencia", "Frequência");
+        const vend = pega(row, "Promotor", "Vendedor");
         const cep  = pega(row, "CEP");
-        const freq = pega(row, "Frequência de Promotoria", "Frequencia", "Frequência");
-        const vend = pega(row, "Vendedor", "Promotor");
+
+        // Pula se já cadastrada (dedup por nome + número do endereço)
+        const chave = chaveLoja(nome, ende);
+        if (existentesChaves.has(chave)) { puladas++; continue; }
+        existentesChaves.add(chave); // evita duplicar dentro do próprio arquivo também
 
         const docRef = db.collection("lojas").doc();
         batch.set(docRef, {
-          nome, ende, cep, freq,
+          nome, ende, cep, freq, uf, canal,
           promotores: vend ? [vend] : []
         });
         if (vend) promotoresNovos.add(vend);
-        count++; total++;
+        count++; criadas++;
 
-        // Firestore batch limite 500
-        if (count >= 400) { await batch.commit(); batch = db.batch(); count = 0; }
+        if (count >= 400) { await batch.commit(); batch = db.batch(); count = 0; status.textContent = `⏳ Importando… ${criadas} novas`; }
       }
       if (count > 0) await batch.commit();
 
-      // Cria promotores que vieram no Excel e ainda não existem
-      const existentes = new Set(PROMOTORES_DB.map(p=>p.nome));
+      // Cria promotores que vieram no arquivo e ainda não existem
+      const existentesProm = new Set(PROMOTORES_DB.map(p=>p.nome));
+      let promCriados = 0;
       for (const nome of promotoresNovos) {
-        if (!existentes.has(nome)) {
+        if (!existentesProm.has(nome)) {
           await db.collection("promotores").add({nome, ativo:true});
+          promCriados++;
         }
       }
 
       await carregarLojasPromotores();
       status.style.background = "var(--green-lo)";
       status.style.color = "var(--green)";
-      status.textContent = `✓ ${total} lojas importadas! ${promotoresNovos.size} promotor(es) na base.`;
-      renderCadastro();
-      input.value = "";
+      status.textContent = `✓ ${criadas} loja(s) importada(s), ${puladas} já existente(s) pulada(s)${promCriados?`, ${promCriados} promotor(es) novo(s)`:""}.`;
+      renderCadastroLojas();
     } catch(err) {
       console.error(err);
       status.style.background = "rgba(229,57,53,.1)";
@@ -2675,6 +2893,7 @@ window.importarExcel = function(input) {
   };
   reader.readAsArrayBuffer(file);
 };
+
 
 /* ─── RENDER CADASTRO ─── */
 async function renderCadastro() {
