@@ -370,6 +370,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <body>
 
@@ -835,6 +836,27 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         </div>
       </div>
 
+      <!-- Filtros da listagem de rotas -->
+      <div id="rotas-list-controls" style="display:none;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px;">
+        <div class="search-wrap" style="flex:1;min-width:200px;">
+          <span class="search-ico">🔍</span>
+          <input type="text" id="rotas-busca" placeholder="Buscar por loja ou endereço…" oninput="renderCalendario()">
+        </div>
+        <select class="filter-select" id="rotas-filtro-status" onchange="renderCalendario()">
+          <option value="">Todos os status</option>
+          <option value="realizada">✓ Realizada</option>
+          <option value="pendente">○ Pendente</option>
+          <option value="extra">🟡 Fora do roteiro</option>
+        </select>
+        <select class="filter-select" id="rotas-sort" onchange="renderCalendario()">
+          <option value="loja-asc">Loja (A→Z)</option>
+          <option value="loja-desc">Loja (Z→A)</option>
+          <option value="prog-desc">Mais programadas</option>
+          <option value="prog-asc">Menos programadas</option>
+          <option value="status">Status</option>
+        </select>
+      </div>
+
       <!-- Calendário -->
       <div id="calendario-container"></div>
 
@@ -876,6 +898,18 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           </div>
           <button onclick="exportarConsolidado()" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">⬇️ Baixar consolidado</button>
         </div>
+      </div>
+
+      <!-- Book de Fotos (PDF) -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <h3 style="font-size:16px;font-weight:700;">📸 Book de Fotos (PDF)</h3>
+            <p style="font-size:13px;color:var(--muted);margin-top:2px;">PDF com as fotos por visita — antes, depois e MPdV — no período e promotor selecionados.</p>
+          </div>
+          <button onclick="exportarBookFotos()" id="btn-book-fotos" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">⬇️ Gerar PDF</button>
+        </div>
+        <div id="book-fotos-status" style="display:none;margin-top:12px;font-size:13px;color:var(--muted);"></div>
       </div>
 
       <!-- Relatórios separados -->
@@ -1146,7 +1180,8 @@ window.renderTabela = () => {
 
   vs.forEach(v => {
     const dataFmt = v.data ? new Date(v.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
-    const nProd   = (v.produtos||[]).length;
+    // Nº de SKUs distintos na contagem de estoque (não os produtos de validade)
+    const nProd   = new Set((v.estoque||[]).map(e=>e.sku)).size;
     const statusVisitaLabels = {
       sem_problema:"✅ OK", validade:"⚠️ Validade",
       pouco_produto:"📦 Pouco produto", outros:"📝 Outros"
@@ -1914,29 +1949,70 @@ window.renderCalendario = function() {
   let totalProg = chaves.length; // nº de lojas programadas distintas
   let totalFeitas = 0;
 
+  // Calcula status de cada chave (para percentual, filtro e sort)
+  const linhas = chaves.map(chave => {
+    const l = mapa[chave];
+    const datas = [...l.visitas].filter(Boolean).sort();
+    const override = ROTAS_STATUS[promotor+"||"+chave];
+    let feita = datas.length > 0;
+    if (override === "feita") feita = true;
+    if (override === "nao") feita = false;
+    if (feita) totalFeitas++;
+    return { chave, nome:l.nome, ende:l.ende, freq:l.freq, qtdProg:l.qtdProg, datas, override, feita };
+  });
+
+  // Controles de filtro/sort
+  const controls = document.getElementById("rotas-list-controls");
+  const busca = (document.getElementById("rotas-busca")?.value||"").toLowerCase();
+  const fStatus = document.getElementById("rotas-filtro-status")?.value||"";
+  const sortBy = document.getElementById("rotas-sort")?.value||"loja-asc";
+
+  // Aplica busca e filtro de status às linhas programadas
+  let linhasFiltradas = linhas.filter(l => {
+    if (busca && !(l.nome+" "+(l.ende||"")).toLowerCase().includes(busca)) return false;
+    if (fStatus === "realizada" && !l.feita) return false;
+    if (fStatus === "pendente" && l.feita) return false;
+    if (fStatus === "extra") return false; // extras tratados à parte
+    return true;
+  });
+  // Sort
+  linhasFiltradas.sort((a,b) => {
+    switch(sortBy){
+      case "loja-desc": return b.nome.localeCompare(a.nome,"pt-BR");
+      case "prog-desc": return b.qtdProg - a.qtdProg;
+      case "prog-asc":  return a.qtdProg - b.qtdProg;
+      case "status":    return (a.feita===b.feita)?0:(a.feita?-1:1);
+      default:          return a.nome.localeCompare(b.nome,"pt-BR");
+    }
+  });
+
+  // Extras: aplica busca; filtro de status "extra" mostra só eles, outros filtros escondem
+  let extrasFiltrados = extrasList.filter(e => {
+    if (busca && !(e.loja+" "+(e.ende||"")).toLowerCase().includes(busca)) return false;
+    if (fStatus && fStatus !== "extra") return false;
+    return true;
+  });
+
+  if (controls) controls.style.display = (chaves.length || extrasList.length) ? "flex" : "none";
+
   let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(26,43,74,.06);">`;
   if (!chaves.length && !extrasList.length) {
     html += `<div class="empty-state"><div class="empty-icon">🗓️</div>Nenhuma visita programada ou realizada no período.</div>`;
+  } else if (!linhasFiltradas.length && !extrasFiltrados.length) {
+    html += `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhum resultado para o filtro atual.</div>`;
   } else {
     html += `<table><thead><tr><th style="width:40px;"></th><th>Loja programada</th><th>Visitas programadas</th><th>Status</th><th>Data(s) da visita</th></tr></thead><tbody>`;
 
-    chaves.forEach(chave => {
-      const l = mapa[chave];
-      const datas = [...l.visitas].filter(Boolean).sort();
-      // Status: automático (feita se há visita) OU override manual salvo
-      const override = ROTAS_STATUS[promotor+"||"+chave];
-      let feita = datas.length > 0;
-      if (override === "feita") feita = true;
-      if (override === "nao") feita = false;
-      if (feita) totalFeitas++;
-
+    linhasFiltradas.forEach(l => {
+      const datas = l.datas;
+      const feita = l.feita;
+      const override = l.override;
       const icon = feita ? "✓" : "○";
       const cor = feita ? "var(--green)" : "var(--muted)";
-      const statusTxt = feita ? "Realizada" : "Pendente";
       const datasFmt = datas.length
         ? datas.map(d=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})).join(", ")
         : "—";
-      const chaveEsc = (promotor+"||"+chave).replace(/'/g,"\\'");
+      const chaveEsc = (promotor+"||"+l.chave).replace(/'/g,"\\'");
 
       html += `<tr>
         <td style="text-align:center;"><div style="width:24px;height:24px;border-radius:50%;background:${cor};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">${icon}</div></td>
@@ -1953,7 +2029,8 @@ window.renderCalendario = function() {
       </tr>`;
     });
 
-    extrasList.forEach(e => {
+    
+extrasFiltrados.forEach(e => {
       const dataFmt = e.data ? new Date(e.data+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}) : "—";
       html += `<tr style="background:rgba(245,158,11,.06);">
         <td style="text-align:center;"><div style="width:24px;height:24px;border-radius:50%;background:var(--yellow);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">🟡</div></td>
@@ -2237,6 +2314,145 @@ window.exportarMpdv = function() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), "MPdV");
   baixarWb(wb, "Relatorio_MPdV" + relSufixo());
 };
+// Carrega uma imagem de URL e retorna {dataURL, w, h}
+function carregarImagemBook(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        // limita resolução para PDF não ficar gigante
+        const maxDim = 900;
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (w > maxDim || h > maxDim) {
+          const r = Math.min(maxDim/w, maxDim/h);
+          w = Math.round(w*r); h = Math.round(h*r);
+        }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve({ dataURL: canvas.toDataURL("image/jpeg", 0.75), w, h });
+      } catch(e) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+window.exportarBookFotos = async function() {
+  const f = relFiltro();
+  const visitas = VISITAS.filter(v => relPassa(v,f)).sort((a,b)=>(a.data>b.data?1:-1));
+  if (!visitas.length) { alert("Nenhuma visita no filtro selecionado."); return; }
+
+  const btn = document.getElementById("btn-book-fotos");
+  const status = document.getElementById("book-fotos-status");
+  btn.disabled = true; btn.textContent = "Gerando…";
+  status.style.display = "block";
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:"mm", format:"a4" });
+  const pw = 210, ph = 297, margin = 12;
+  let primeira = true;
+
+  // Capa
+  pdf.setFillColor(44,57,127); pdf.rect(0,0,pw,45,"F");
+  pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(22);
+  pdf.text("Book de Fotos", margin, 25);
+  pdf.setFontSize(11); pdf.setFont("helvetica","normal");
+  const periodo = (f.ini||"início") + " a " + (f.fim||"fim") + (f.prom?("  ·  "+f.prom):"");
+  pdf.text(periodo, margin, 34);
+  pdf.setTextColor(0,0,0);
+  let cursorY = 55;
+
+  // Pré-filtra só visitas que têm alguma foto (antes/depois/mpdv)
+  const comFoto = visitas.filter(v => {
+    const a = v.fotosAntes || (v.fotoAntesURL?[v.fotoAntesURL]:[]);
+    const d = v.fotosDepois || (v.fotoDepoisURL?[v.fotoDepoisURL]:[]);
+    const m = v.fotosMpdv || [];
+    return (a.length + d.length + m.length) > 0;
+  });
+
+  if (!comFoto.length) {
+    btn.disabled = false; btn.textContent = "⬇️ Gerar PDF";
+    status.style.display = "none";
+    alert("Nenhuma foto encontrada nas visitas do período.");
+    return;
+  }
+
+  // Processamento por lotes: evita travar o navegador com muitas fotos
+  const TAMANHO_LOTE = 15; // visitas por lote
+  let totalFotos = 0;
+  const totalVisitas = comFoto.length;
+
+  for (let inicio = 0; inicio < totalVisitas; inicio += TAMANHO_LOTE) {
+    const lote = comFoto.slice(inicio, inicio + TAMANHO_LOTE);
+
+    for (let j = 0; j < lote.length; j++) {
+      const v = lote[j];
+      const nVisita = inicio + j + 1;
+      status.textContent = `Processando visita ${nVisita} de ${totalVisitas}… (${totalFotos} fotos até agora)`;
+
+      const grupos = [
+        { titulo:"Antes", urls: v.fotosAntes || (v.fotoAntesURL?[v.fotoAntesURL]:[]) },
+        { titulo:"Depois", urls: v.fotosDepois || (v.fotoDepoisURL?[v.fotoDepoisURL]:[]) },
+        { titulo:"MPdV", urls: v.fotosMpdv || [] },
+      ];
+
+      // Cabeçalho da visita
+      if (!primeira) { pdf.addPage(); cursorY = margin; }
+      primeira = false;
+      const dataFmt = v.data ? new Date(v.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+      pdf.setFillColor(244,246,249); pdf.rect(0,cursorY-6,pw,16,"F");
+      pdf.setFont("helvetica","bold"); pdf.setFontSize(13); pdf.setTextColor(44,57,127);
+      pdf.text(`${v.loja||"—"}`, margin, cursorY+2);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(9); pdf.setTextColor(100,100,100);
+      pdf.text(`${v.lojaEnde||""}  ·  ${v.promotor||""}  ·  ${dataFmt}`, margin, cursorY+7);
+      pdf.setTextColor(0,0,0);
+      cursorY += 16;
+
+      for (const g of grupos) {
+        const urls = g.urls || [];
+        if (!urls.length) continue;
+        for (const url of urls) {
+          const img = await carregarImagemBook(url);
+          if (!img) continue;
+          totalFotos++;
+          const maxW = 80, maxH = 60;
+          let w = maxW, h = w * (img.h/img.w);
+          if (h > maxH) { h = maxH; w = h * (img.w/img.h); }
+          if (cursorY + h + 10 > ph - margin) { pdf.addPage(); cursorY = margin; }
+          pdf.setFont("helvetica","bold"); pdf.setFontSize(10); pdf.setTextColor(44,57,127);
+          pdf.text(g.titulo, margin, cursorY+4);
+          pdf.setTextColor(0,0,0);
+          pdf.addImage(img.dataURL, "JPEG", margin, cursorY+6, w, h);
+          cursorY += h + 12;
+        }
+      }
+    }
+
+    // Pausa entre lotes: devolve o controle ao navegador (não trava)
+    if (inicio + TAMANHO_LOTE < totalVisitas) {
+      status.textContent = `Pausa entre lotes… (${inicio + TAMANHO_LOTE} de ${totalVisitas} visitas processadas)`;
+      await new Promise(r => setTimeout(r, 120));
+    }
+  }
+
+  if (totalFotos === 0) {
+    btn.disabled = false; btn.textContent = "⬇️ Gerar PDF";
+    status.style.display = "none";
+    alert("Nenhuma foto pôde ser carregada (verifique a conexão).");
+    return;
+  }
+
+  status.textContent = `Finalizando o PDF com ${totalFotos} foto(s)…`;
+  const nome = "Book_Fotos" + relSufixo() + ".pdf";
+  pdf.save(nome);
+  btn.disabled = false; btn.textContent = "⬇️ Gerar PDF";
+  status.textContent = `✓ PDF gerado com ${totalFotos} foto(s) de ${totalVisitas} visita(s).`;
+};
+
 window.exportarConsolidado = function() {
   const wb = XLSX.utils.book_new();
   const v = dadosVisitas(), p = dadosPrecos(), venc = dadosVencimentos(), m = dadosMpdv(), r = dadosRotas();

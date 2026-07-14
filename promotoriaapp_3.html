@@ -949,6 +949,29 @@ window.avancarTela = function(atualId) {
       if (primeiro) primeiro.scrollIntoView({behavior:"smooth", block:"center"});
       return;
     }
+    // Categorias marcadas com ✓ exigem preço preenchido
+    const semPreco = CATEGORIAS.filter(cat => {
+      const e = S.precos[cat];
+      return e && e.presente === true && (!e.preco || parseFloat(e.preco) <= 0);
+    });
+    if (semPreco.length) {
+      toast(`Preencha o preço das categorias marcadas com ✓ (faltam ${semPreco.length})`, "err");
+      semPreco.forEach(cat => {
+        const card = document.getElementById("preco-card-" + cat.replace(/[^a-z0-9]/gi,"_"));
+        if (card) {
+          card.style.borderColor = "var(--red)";
+          card.style.boxShadow = "0 0 0 2px rgba(229,57,53,.15)";
+        }
+      });
+      const primeiro = document.getElementById("preco-card-" + semPreco[0].replace(/[^a-z0-9]/gi,"_"));
+      if (primeiro) primeiro.scrollIntoView({behavior:"smooth", block:"center"});
+      return;
+    }
+  }
+
+  // Estoque: exige selecionar produto e ao menos 1 SKU na contagem
+  if (atualId === "screen-estoque") {
+    if (!S.estoque.length) { toast("Adicione ao menos 1 produto à contagem de estoque", "err"); return; }
   }
 
   // Validade: se "Sim", exige produto + data + foto
@@ -1640,7 +1663,7 @@ window.prepResumo = ()=>{
     document.getElementById("res-precos").innerHTML=precosReg.map(([cat,v])=>`
       <div class="resumo-row">
         <span class="key">${cat}</span>
-        <span class="val">${v.presente===false?"✗ Não disponível":`R$ ${parseFloat(v.preco||0).toFixed(2)}${v.justificativa?" · "+v.justificativa:""}`}</span>
+        <span class="val">${v.presente===false?"❌":`R$ ${parseFloat(v.preco||0).toFixed(2)}${v.justificativa?" · "+v.justificativa:""}`}</span>
       </div>`).join("");
   } else { precSec.style.display="none"; }
 };
@@ -1704,7 +1727,7 @@ ${i+1}. *${p.desc}*
 💰 *PREÇOS REGISTRADOS*
 `;
     precosReg.forEach(([cat,v])=>{
-      if (v.presente===false) msg+=`• ${cat}: ✗ Não disponível
+      if (v.presente===false) msg+=`• ${cat}: ❌
 `;
       else msg+=`• ${cat}: R$ ${parseFloat(v.preco||0).toFixed(2)}${v.justificativa?" ("+v.justificativa+")":""}
 `;
