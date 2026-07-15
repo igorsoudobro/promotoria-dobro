@@ -795,27 +795,28 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
       <!-- Cobertura de PROMOTORIA (estrutural) -->
       <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 10px;">Cobertura de promotoria (estrutural)</h3>
       <div class="stats-row" style="margin-bottom:20px;">
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaCobertura('total')" title="Ver lojas">
           <div class="stat-top"><span class="stat-label">Cobertura de promotoria</span><span class="stat-icon">🏪</span></div>
           <div class="stat-val c-accent" id="cob-prom-perc">—</div>
           <div class="stat-sub" id="cob-prom-sub">lojas com promotor / total</div>
         </div>
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaCobertura('total')" title="Ver todas as lojas">
           <div class="stat-top"><span class="stat-label">Total de lojas</span><span class="stat-icon">📦</span></div>
           <div class="stat-val" id="cob-total">—</div>
-          <div class="stat-sub">no filtro</div>
+          <div class="stat-sub">no filtro · clique para ver</div>
         </div>
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaCobertura('com')" title="Ver lojas com promotor">
           <div class="stat-top"><span class="stat-label">Com promotor</span><span class="stat-icon">✅</span></div>
           <div class="stat-val c-green" id="cob-com">—</div>
-          <div class="stat-sub">atendidas por alguém</div>
+          <div class="stat-sub">atendidas · clique para ver</div>
         </div>
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaCobertura('sem')" title="Ver lojas sem promotor">
           <div class="stat-top"><span class="stat-label">Sem promotor</span><span class="stat-icon">⚠️</span></div>
           <div class="stat-val c-yellow" id="cob-sem">—</div>
-          <div class="stat-sub">backlog a atribuir</div>
+          <div class="stat-sub">backlog · clique para alocar</div>
         </div>
       </div>
+      <div id="cob-lista-lojas"></div>
 
       <!-- Cobertura de ATENDIMENTO (visitas) -->
       <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 10px;">Cobertura de atendimento (visitas no mês de referência)</h3>
@@ -823,17 +824,22 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <div class="stat">
           <div class="stat-top"><span class="stat-label">Cobertura de atendimento</span><span class="stat-icon">📍</span></div>
           <div class="stat-val c-green" id="cob-atend-perc">—</div>
-          <div class="stat-sub" id="cob-atend-sub">visitas feitas / necessárias</div>
+          <div class="stat-sub" id="cob-atend-sub">realizadas / atreladas</div>
         </div>
         <div class="stat">
-          <div class="stat-top"><span class="stat-label">Visitas necessárias</span><span class="stat-icon">🎯</span></div>
+          <div class="stat-top"><span class="stat-label">Visitas necessárias (ideal)</span><span class="stat-icon">🎯</span></div>
           <div class="stat-val c-accent" id="cob-nec">—</div>
-          <div class="stat-sub">pela frequência das lojas</div>
+          <div class="stat-sub">pela freq. necessária</div>
+        </div>
+        <div class="stat">
+          <div class="stat-top"><span class="stat-label">Visitas atreladas</span><span class="stat-icon">🔗</span></div>
+          <div class="stat-val c-accent" id="cob-atr">—</div>
+          <div class="stat-sub">planejadas pelo promotor</div>
         </div>
         <div class="stat">
           <div class="stat-top"><span class="stat-label">Visitas realizadas</span><span class="stat-icon">✔️</span></div>
           <div class="stat-val c-green" id="cob-real">—</div>
-          <div class="stat-sub">registradas no mês</div>
+          <div class="stat-sub">feitas (app + manuais)</div>
         </div>
         <div class="stat">
           <div class="stat-top"><span class="stat-label">Fora do roteiro</span><span class="stat-icon">🟡</span></div>
@@ -841,7 +847,10 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           <div class="stat-sub">lojas não atreladas</div>
         </div>
       </div>
-      <p style="font-size:11px;color:var(--muted);margin:0 0 20px;">Necessárias/mês por loja: Semanal = 4, Quinzenal = 2, Mensal = 1. "Fora do roteiro" = visitas a lojas que não estão atreladas ao promotor.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 20px;">Por mês: Semanal = 4, Quinzenal = 2, Mensal = 1. <strong>Necessária</strong> = ideal pela loja · <strong>Atrelada</strong> = o que o promotor planeja · <strong>Realizada</strong> = feita no app ou marcada manualmente. Cobertura = realizadas ÷ atreladas.</p>
+
+      <!-- Visitas por promotor (marcar manualmente) -->
+      <div id="cob-visitas-promotor"></div>
 
       <details style="margin-bottom:20px;">
         <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--accent);">📥 Importar roteiro antigo / listagem detalhada por loja</summary>
@@ -985,7 +994,11 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
             <h3 style="font-size:16px;font-weight:700;">📸 Book de Fotos (PDF)</h3>
-            <p style="font-size:13px;color:var(--muted);margin-top:2px;">PDF com as fotos por visita — antes, depois e MPdV — no período e promotor selecionados.</p>
+            <p style="font-size:13px;color:var(--muted);margin-top:2px;">PDF com as fotos por visita — antes, depois e MPdV — no período, promotor e rede selecionados.</p>
+          </div>
+          <div style="min-width:180px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal</label>
+            <select id="book-rede" class="filter-select" style="width:100%;"><option value="">Todas as redes</option></select>
           </div>
           <button onclick="exportarBookFotos()" id="btn-book-fotos" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">⬇️ Gerar PDF</button>
         </div>
@@ -1272,8 +1285,10 @@ window.renderTabela = () => {
     const badgeCls= `badge-${cls}`;
     const statusTxt = cls==="red"?"🔴 Urgente":cls==="yellow"?"⚠️ Atenção":"✅ OK";
 
-    const fA = v.fotoAntesURL  ? `<img style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${v.fotoAntesURL}"  onclick="openLb('${v.fotoAntesURL}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
-    const fD = v.fotoDepoisURL ? `<img style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${v.fotoDepoisURL}" onclick="openLb('${v.fotoDepoisURL}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+    const urlA = (v.fotosAntes && v.fotosAntes.length) ? v.fotosAntes[0] : v.fotoAntesURL;
+    const urlD = (v.fotosDepois && v.fotosDepois.length) ? v.fotosDepois[0] : v.fotoDepoisURL;
+    const fA = urlA ? `<img title="Foto ANTES" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${urlA}"  onclick="openLb('${urlA}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+    const fD = urlD ? `<img title="Foto DEPOIS" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${urlD}" onclick="openLb('${urlD}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
 
     // life bar
     const maxDias = 365;
@@ -1714,12 +1729,24 @@ window.openModal = (id) => {
     </div>
   </div>`;
 
-  if (v.fotoAntesURL||v.fotoDepoisURL) {
-    html+=`<div class="modal-section"><div class="modal-section-label">Fotos</div>
-      <div class="foto-pair-modal">
-        ${v.fotoAntesURL ?`<div><div class="foto-modal"><img src="${v.fotoAntesURL}"  onclick="openLb('${v.fotoAntesURL}')"></div><div class="foto-modal-lbl">Antes</div></div>`:""}
-        ${v.fotoDepoisURL?`<div><div class="foto-modal"><img src="${v.fotoDepoisURL}" onclick="openLb('${v.fotoDepoisURL}')"></div><div class="foto-modal-lbl">Depois</div></div>`:""}
-      </div></div>`;
+  // Fotos: rótulos claros de Antes / Depois / MPdV (suporta múltiplas e formato antigo)
+  const fotosAntes  = (v.fotosAntes && v.fotosAntes.length) ? v.fotosAntes : (v.fotoAntesURL?[v.fotoAntesURL]:[]);
+  const fotosDepois = (v.fotosDepois && v.fotosDepois.length) ? v.fotosDepois : (v.fotoDepoisURL?[v.fotoDepoisURL]:[]);
+  const fotosMpdv   = v.fotosMpdv || [];
+  if (fotosAntes.length || fotosDepois.length || fotosMpdv.length) {
+    html += `<div class="modal-section"><div class="modal-section-label">Fotos</div>`;
+    function grupoFotos(titulo, cor, urls) {
+      if (!urls.length) return "";
+      const imgs = urls.map(u=>`<div class="foto-modal"><img src="${u}" onclick="openLb('${u}')"></div>`).join("");
+      return `<div style="margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;color:${cor};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">${titulo} <span style="color:var(--muted);font-weight:400;">(${urls.length})</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">${imgs}</div>
+      </div>`;
+    }
+    html += grupoFotos("📸 Antes", "var(--accent)", fotosAntes);
+    html += grupoFotos("✅ Depois", "var(--green)", fotosDepois);
+    html += grupoFotos("🪧 MPdV", "var(--yellow)", fotosMpdv);
+    html += `</div>`;
   }
 
   // Estoque
@@ -1778,7 +1805,15 @@ window.closeLb = ()=>document.getElementById("lb").classList.remove("open");
 let ROTEIRO = null;   // { semanas: [ [dia0..dia5], ... ] }  dia = [{nome, ende, tipo, freq}]
 let ALOCACOES = {};   // { "2026-07": "2026-06-30", ... }  mês → segunda em que a Semana 1 começa
 let ROTAS_STATUS = {}; // override manual de status: { "promotor||nome||ende": "feita"|"nao" }
+let VISITAS_MANUAIS = {}; // visitas marcadas manualmente: { "promotor||nome||ende": {feita, data, uf, canal} }
 const DIAS_SEMANA = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+
+async function carregarVisitasManuais() {
+  try {
+    const snap = await firebase.firestore().collection("config").doc("visitas_manuais").get();
+    if (snap.exists) VISITAS_MANUAIS = snap.data() || {};
+  } catch(e) { console.warn("Visitas manuais:", e); }
+}
 
 window.salvarAlocacao = async function() {
   const mes = document.getElementById("rotas-mes").value;
@@ -2234,6 +2269,7 @@ function visitasNecessariasMes(freq) {
   return 1; // default
 }
 
+let COB_FILTRO = { fProm:"", fUF:"", fCanal:"", mes:"" };
 function renderCobertura() {
   // Popula filtros (uma vez)
   popularFiltrosCobertura();
@@ -2242,6 +2278,7 @@ function renderCobertura() {
   const fUF = document.getElementById("cob-uf")?.value || "";
   const fCanal = document.getElementById("cob-canal")?.value || "";
   const mes = document.getElementById("cob-mes")?.value || "";
+  COB_FILTRO = { fProm, fUF, fCanal, mes };
 
   // Lojas no filtro (estado/canal; promotor entra na lógica de cada análise)
   const lojasFiltro = LOJAS_DB.filter(l => {
@@ -2278,18 +2315,20 @@ function renderCobertura() {
     if (fProm && !(l.promotores||[]).includes(fProm)) return false;
     return true;
   });
-  // Visitas necessárias = soma das frequências
-  let necessarias = 0;
-  lojasAtreladas.forEach(l => { necessarias += visitasNecessariasMes(l.freq); });
+  // Visitas necessárias = soma da frequência NECESSÁRIA (meta ideal)
+  // Visitas atreladas   = soma da frequência ATRELADA (o que o promotor planeja fazer)
+  let necessarias = 0, atreladas = 0;
+  lojasAtreladas.forEach(l => {
+    necessarias += visitasNecessariasMes(l.freq);
+    atreladas   += visitasNecessariasMes(l.freqAtr || l.freq); // fallback: se não tem atrelada, usa a necessária
+  });
 
   // Visitas realizadas no mês de referência
-  const [ano, m] = mes ? mes.split("-").map(Number) : [null,null];
   function noMes(dataStr) {
-    if (!mes) return true; // sem mês = todas
+    if (!mes) return true;
     if (!dataStr) return false;
     return dataStr.startsWith(mes);
   }
-  // Casa visita → loja atrelada (por nome+endereço)
   const chavesAtreladas = new Set(lojasAtreladas.map(l => chaveLojaCob(l.nome, l.ende)));
   const nomesPromotores = new Set(lojasAtreladas.flatMap(l => l.promotores||[]));
 
@@ -2297,19 +2336,189 @@ function renderCobertura() {
   VISITAS.forEach(v => {
     if (!noMes(v.data)) return;
     if (fProm && v.promotor !== fProm) return;
-    // se filtro de promotor vazio, considera só visitas de promotores que têm lojas no filtro
     if (!fProm && nomesPromotores.size && !nomesPromotores.has(v.promotor)) return;
     const chaveV = chaveLojaCob(v.loja, v.lojaEnde);
     if (chavesAtreladas.has(chaveV)) realizadas++;
     else foraRoteiro++;
   });
+  // Soma visitas marcadas manualmente como feitas (para quem não usa o app)
+  realizadas += contarVisitasManuais(fProm, fUF, fCanal, mes);
 
-  const percAtend = necessarias > 0 ? Math.round(realizadas/necessarias*100) : 0;
+  // Cobertura de atendimento = realizadas / atreladas (o compromisso do promotor)
+  const percAtend = atreladas > 0 ? Math.round(realizadas/atreladas*100) : 0;
   document.getElementById("cob-atend-perc").textContent = percAtend + "%";
-  document.getElementById("cob-atend-sub").textContent = `${realizadas} de ${necessarias} visitas`;
+  document.getElementById("cob-atend-sub").textContent = `${realizadas} de ${atreladas} atreladas`;
   document.getElementById("cob-nec").textContent = necessarias;
+  const elAtr = document.getElementById("cob-atr"); if (elAtr) elAtr.textContent = atreladas;
   document.getElementById("cob-real").textContent = realizadas;
   document.getElementById("cob-fora").textContent = foraRoteiro;
+
+  renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas);
+}
+
+function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
+  const cont = document.getElementById("cob-visitas-promotor");
+  if (!cont) return;
+  if (!fProm) {
+    cont.innerHTML = `<div style="background:var(--card2);border:1px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--muted);font-size:13px;">Filtre por um promotor acima para ver e marcar as visitas loja a loja.</div>`;
+    return;
+  }
+  function noMes(d){ if(!mes) return true; if(!d) return false; return d.startsWith(mes); }
+
+  // Para cada loja atrelada, conta visitas do app + status manual
+  const linhas = lojasAtreladas.map(l => {
+    const chaveLoja = chaveLojaCob(l.nome, l.ende);
+    const chaveManual = fProm + "||" + l.nome + "||" + (l.ende||"");
+    const visitasApp = VISITAS.filter(v => v.promotor===fProm && noMes(v.data) && chaveLojaCob(v.loja, v.lojaEnde)===chaveLoja);
+    const manual = VISITAS_MANUAIS[chaveManual];
+    const feitaManual = manual && manual.feita;
+    const feita = visitasApp.length > 0 || feitaManual;
+    const datas = visitasApp.map(v=>v.data);
+    if (feitaManual && manual.data) datas.push(manual.data + " (manual)");
+    return { loja:l, chaveManual, feita, feitaManual, datas, atrelada: visitasNecessariasMes(l.freqAtr||l.freq) };
+  });
+
+  const feitas = linhas.filter(l=>l.feita).length;
+  const naoFeitas = linhas.length - feitas;
+
+  let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+      <h3 style="font-size:15px;font-weight:700;">Visitas de ${fProm} ${mes?("· "+mes):""}</h3>
+      <div style="display:flex;gap:16px;font-size:13px;">
+        <span style="color:var(--green);font-weight:700;">✓ ${feitas} feitas</span>
+        <span style="color:var(--red);font-weight:700;">○ ${naoFeitas} não realizadas</span>
+      </div>
+    </div>
+    <div style="max-height:400px;overflow-y:auto;"><table><thead><tr><th style="width:40px;"></th><th>Loja</th><th>Atreladas/mês</th><th>Visitas registradas</th><th>Ação</th></tr></thead><tbody>`;
+
+  // Ordena: não feitas primeiro
+  linhas.sort((a,b)=> (a.feita===b.feita)?0:(a.feita?1:-1));
+  linhas.forEach(l => {
+    const icon = l.feita ? "✓" : "○";
+    const cor = l.feita ? "var(--green)" : "var(--muted)";
+    const datasFmt = l.datas.length ? l.datas.map(d=>{
+      const dd = d.replace(" (manual)","");
+      const suf = d.includes("(manual)") ? " (manual)" : "";
+      return new Date(dd+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}) + suf;
+    }).join(", ") : "—";
+    const chaveEsc = l.chaveManual.replace(/'/g,"\\'");
+    html += `<tr ${!l.feita?'style="background:rgba(229,57,53,.04);"':''}>
+      <td style="text-align:center;"><div style="width:24px;height:24px;border-radius:50%;background:${cor};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">${icon}</div></td>
+      <td><strong>${l.loja.nome}</strong>${l.loja.ende?`<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px;">${l.loja.ende}</div>`:""}</td>
+      <td style="text-align:center;color:var(--accent);font-weight:700;">${l.atrelada}</td>
+      <td style="font-size:12px;color:var(--muted);">${datasFmt}</td>
+      <td>${l.feitaManual
+        ? `<button onclick="desmarcarVisitaManual('${chaveEsc}')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:var(--font);">Desfazer manual</button>`
+        : `<button onclick="marcarVisitaManual('${chaveEsc}')" style="background:var(--green-lo);border:1px solid var(--green);color:var(--green);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);">✓ Marcar feita</button>`}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+  cont.innerHTML = html;
+}
+
+window.abrirListaCobertura = function(tipo) {
+  const cont = document.getElementById("cob-lista-lojas");
+  if (!cont) return;
+  const { fProm, fUF, fCanal } = COB_FILTRO;
+  let lojas = LOJAS_DB.filter(l => {
+    if (fUF && (l.uf||"") !== fUF) return false;
+    if (fCanal && (l.canal||"") !== fCanal) return false;
+    return true;
+  });
+  if (tipo === "com") {
+    lojas = lojas.filter(l => fProm ? (l.promotores||[]).includes(fProm) : (l.promotores||[]).length>0);
+  } else if (tipo === "sem") {
+    lojas = lojas.filter(l => !(l.promotores||[]).length);
+  } else if (tipo === "total" && fProm) {
+    lojas = lojas.filter(l => (l.promotores||[]).includes(fProm) || !(l.promotores||[]).length);
+  }
+  lojas.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+
+  const titulos = { total:"Todas as lojas", com:"Lojas com promotor", sem:"Lojas sem promotor (backlog)" };
+  const opcoesProm = PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("");
+
+  let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="font-size:15px;font-weight:700;">${titulos[tipo]||"Lojas"} <span style="color:var(--muted);font-weight:400;">(${lojas.length})</span></h3>
+      <button onclick="document.getElementById('cob-lista-lojas').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq.</th><th>${tipo==="sem"?"Alocar promotor":"Promotor"}</th></tr></thead><tbody>`;
+
+  if (!lojas.length) {
+    html += `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma loja neste grupo.</td></tr>`;
+  } else {
+    lojas.slice(0,500).forEach(l => {
+      const promAtual = (l.promotores||[]).join(", ") || "—";
+      const acaoCol = tipo==="sem"
+        ? `<select onchange="alocarPromotorLoja('${l.id}', this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:var(--font);cursor:pointer;">
+             <option value="">Selecionar…</option>${opcoesProm}
+           </select>`
+        : `<span style="font-weight:600;">${promAtual}</span>`;
+      html += `<tr>
+        <td><strong>${l.nome}</strong>${l.ende?`<div style="font-size:11px;color:var(--muted);font-weight:400;">${l.ende}</div>`:""}</td>
+        <td>${l.uf||"—"}</td>
+        <td style="font-size:12px;">${l.canal||"—"}</td>
+        <td style="font-size:12px;">${l.freq||"—"}</td>
+        <td>${acaoCol}</td>
+      </tr>`;
+    });
+    if (lojas.length > 500) html += `<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--muted);">Mostrando as primeiras 500 de ${lojas.length}. Use os filtros para refinar.</td></tr>`;
+  }
+  html += `</tbody></table></div></div>`;
+  cont.innerHTML = html;
+  cont.scrollIntoView({behavior:"smooth", block:"nearest"});
+};
+
+window.alocarPromotorLoja = async function(lojaId, promotor) {
+  if (!promotor) return;
+  const loja = LOJAS_DB.find(l => l.id === lojaId);
+  if (!loja) return;
+  try {
+    const novos = [...new Set([...(loja.promotores||[]), promotor])];
+    loja.promotores = novos;
+    await firebase.firestore().collection("lojas").doc(lojaId).update({ promotores: novos });
+    renderCobertura();
+    abrirListaCobertura("sem"); // reabre a lista de backlog atualizada
+  } catch(e){ console.error(e); alert("Erro ao alocar: "+e.message); }
+};
+
+window.marcarVisitaManual = async function(chave) {
+  // chave = "promotor||nome||ende"
+  const partes = chave.split("||");
+  const prom = partes[0], nome = partes[1], ende = partes[2]||"";
+  const loja = LOJAS_DB.find(l => l.nome===nome && (l.ende||"")===ende);
+  const hoje = new Date().toISOString().slice(0,10);
+  const mes = document.getElementById("cob-mes")?.value;
+  const dataVisita = mes ? (mes + "-15") : hoje; // meio do mês de referência
+  VISITAS_MANUAIS[chave] = { feita:true, data:dataVisita, uf:loja?.uf||"", canal:loja?.canal||"" };
+  try {
+    await firebase.firestore().collection("config").doc("visitas_manuais").set(VISITAS_MANUAIS);
+    renderCobertura();
+  } catch(e){ console.error(e); alert("Erro: "+e.message); }
+};
+
+window.desmarcarVisitaManual = async function(chave) {
+  delete VISITAS_MANUAIS[chave];
+  try {
+    await firebase.firestore().collection("config").doc("visitas_manuais").set(VISITAS_MANUAIS);
+    renderCobertura();
+  } catch(e){ console.error(e); alert("Erro: "+e.message); }
+};
+
+// Conta visitas marcadas manualmente como feitas no dash (VISITAS_MANUAIS)
+function contarVisitasManuais(fProm, fUF, fCanal, mes) {
+  let n = 0;
+  Object.entries(VISITAS_MANUAIS).forEach(([chave, info]) => {
+    // chave = "promotor||lojaChave"; info = {data, uf, canal}
+    if (!info || !info.feita) return;
+    const prom = chave.split("||")[0];
+    if (fProm && prom !== fProm) return;
+    if (fUF && info.uf !== fUF) return;
+    if (fCanal && info.canal !== fCanal) return;
+    if (mes && info.data && !info.data.startsWith(mes)) return;
+    n++;
+  });
+  return n;
 }
 
 function chaveLojaCob(nome, ende) {
@@ -2348,6 +2557,7 @@ async function renderRotas() {
   await carregarRoteiro();
   await carregarAlocacoes();
   await carregarRotasStatus();
+  await carregarVisitasManuais();
   renderCobertura();
   // Popula promotores
   const sel = document.getElementById("rotas-promotor");
@@ -2543,7 +2753,15 @@ function carregarImagemBook(url) {
 
 window.exportarBookFotos = async function() {
   const f = relFiltro();
-  const visitas = VISITAS.filter(v => relPassa(v,f)).sort((a,b)=>(a.data>b.data?1:-1));
+  const redeFiltro = document.getElementById("book-rede")?.value || "";
+  let visitas = VISITAS.filter(v => relPassa(v,f)).sort((a,b)=>(a.data>b.data?1:-1));
+  // Filtro por rede/canal: casa a visita com a loja (por nome+endereço) e checa o canal
+  if (redeFiltro) {
+    const chavesDaRede = new Set(
+      LOJAS_DB.filter(l => (l.canal||"") === redeFiltro).map(l => chaveLojaCob(l.nome, l.ende))
+    );
+    visitas = visitas.filter(v => chavesDaRede.has(chaveLojaCob(v.loja, v.lojaEnde)));
+  }
   if (!visitas.length) { alert("Nenhuma visita no filtro selecionado."); return; }
 
   const btn = document.getElementById("btn-book-fotos");
@@ -2561,7 +2779,7 @@ window.exportarBookFotos = async function() {
   pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(22);
   pdf.text("Book de Fotos", margin, 25);
   pdf.setFontSize(11); pdf.setFont("helvetica","normal");
-  const periodo = (f.ini||"início") + " a " + (f.fim||"fim") + (f.prom?("  ·  "+f.prom):"");
+  const periodo = (f.ini||"início") + " a " + (f.fim||"fim") + (f.prom?("  ·  "+f.prom):"") + (redeFiltro?("  ·  "+redeFiltro):"");
   pdf.text(periodo, margin, 34);
   pdf.setTextColor(0,0,0);
   let cursorY = 55;
@@ -2674,6 +2892,15 @@ function renderRelatorios() {
   VISITAS.forEach(v => { if (v.promotor) nomes.add(v.promotor); });
   sel.innerHTML = `<option value="">Todos</option>` + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${n}">${n}</option>`).join("");
   sel.value = atual;
+
+  // Popula redes/canais no Book de Fotos
+  const selRede = document.getElementById("book-rede");
+  if (selRede) {
+    const atualR = selRede.value;
+    const canais = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort();
+    selRede.innerHTML = `<option value="">Todas as redes</option>` + canais.map(c=>`<option value="${c}">${c}</option>`).join("");
+    selRede.value = atualR;
+  }
 }
 
 
@@ -2835,12 +3062,15 @@ window.importarExcel = function(input) {
       }
       // Conjunto das lojas já existentes
       const existentesChaves = new Set(LOJAS_DB.map(l => chaveLoja(l.nome, l.ende)));
+      const mapaExistentes = {}; // chave -> loja (para atualizar freqAtr das já cadastradas)
+      LOJAS_DB.forEach(l => { mapaExistentes[chaveLoja(l.nome, l.ende)] = l; });
 
       status.textContent = `⏳ Importando ${rows.length} lojas…`;
       const db = firebase.firestore();
       const promotoresNovos = new Set();
       let batch = db.batch();
-      let count = 0, criadas = 0, puladas = 0;
+      let count = 0, criadas = 0, puladas = 0, atualizadas = 0;
+      let batchUpd = db.batch(); let countUpd = 0;
 
       for (const row of rows) {
         const nome = pega(row, "Nome Fantasia", "Rede / Nome da Loja", "Nome da Loja", "Loja", "Rede");
@@ -2849,17 +3079,29 @@ window.importarExcel = function(input) {
         const uf   = pega(row, "UF", "Estado");
         const canal= pega(row, "Canal", "Rede");
         const freq = pega(row, "Frequência necessária (meta)", "Frequência de Promotoria", "Frequência necessária", "Frequencia", "Frequência");
+        const freqAtr = pega(row, "Frequência Atrelada", "Frequencia Atrelada", "Freq Atrelada", "Frequência do Promotor");
         const vend = pega(row, "Promotor", "Vendedor");
         const cep  = pega(row, "CEP");
 
         // Pula se já cadastrada (dedup por nome + número do endereço)
         const chave = chaveLoja(nome, ende);
-        if (existentesChaves.has(chave)) { puladas++; continue; }
+        // Se já cadastrada: atualiza a Frequência Atrelada (se veio no arquivo) e pula a criação
+        if (existentesChaves.has(chave)) {
+          puladas++;
+          const lojaExistente = mapaExistentes[chave];
+          if (freqAtr && lojaExistente && lojaExistente.id && (lojaExistente.freqAtr||"") !== freqAtr) {
+            batchUpd.update(db.collection("lojas").doc(lojaExistente.id), { freqAtr });
+            lojaExistente.freqAtr = freqAtr; // reflete em memória
+            atualizadas++; countUpd++;
+            if (countUpd >= 400) { await batchUpd.commit(); batchUpd = db.batch(); countUpd = 0; }
+          }
+          continue;
+        }
         existentesChaves.add(chave); // evita duplicar dentro do próprio arquivo também
 
         const docRef = db.collection("lojas").doc();
         batch.set(docRef, {
-          nome, ende, cep, freq, uf, canal,
+          nome, ende, cep, freq, freqAtr, uf, canal,
           promotores: vend ? [vend] : []
         });
         if (vend) promotoresNovos.add(vend);
@@ -2868,6 +3110,7 @@ window.importarExcel = function(input) {
         if (count >= 400) { await batch.commit(); batch = db.batch(); count = 0; status.textContent = `⏳ Importando… ${criadas} novas`; }
       }
       if (count > 0) await batch.commit();
+      if (countUpd > 0) await batchUpd.commit();
 
       // Cria promotores que vieram no arquivo e ainda não existem
       const existentesProm = new Set(PROMOTORES_DB.map(p=>p.nome));
@@ -2882,7 +3125,7 @@ window.importarExcel = function(input) {
       await carregarLojasPromotores();
       status.style.background = "var(--green-lo)";
       status.style.color = "var(--green)";
-      status.textContent = `✓ ${criadas} loja(s) importada(s), ${puladas} já existente(s) pulada(s)${promCriados?`, ${promCriados} promotor(es) novo(s)`:""}.`;
+      status.textContent = `✓ ${criadas} loja(s) importada(s), ${puladas} já existente(s)${atualizadas?` (${atualizadas} com freq. atrelada atualizada)`:""} ${promCriados?`, ${promCriados} promotor(es) novo(s)`:""}.`;
       renderCadastroLojas();
     } catch(err) {
       console.error(err);

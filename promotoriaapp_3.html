@@ -999,7 +999,13 @@ window.avancarTela = function(atualId) {
   const fluxo = getFluxo();
   const idx   = fluxo.indexOf(atualId);
   if (idx < 0) return;
-  const prox  = fluxo[idx + 1];
+  let prox  = fluxo[idx + 1];
+  // Ruptura total: se nenhuma categoria está presente (tudo ✗), pula a contagem de estoque
+  if (prox === "screen-estoque" && rupturaTotal()) {
+    S.estoque = []; // garante estoque vazio
+    const idxEst = fluxo.indexOf("screen-estoque");
+    prox = fluxo[idxEst + 1]; // tela seguinte ao estoque
+  }
   if (prox) {
     if (prox === "screen-estoque") initCatGridEstoque();
     if (prox === "screen-validade") initCatGrid();
@@ -1007,6 +1013,16 @@ window.avancarTela = function(atualId) {
     goToScreen(prox);
   }
 };
+
+// Ruptura total = todas as categorias foram marcadas como ✗ (nenhuma presente)
+function rupturaTotal() {
+  const marcadas = CATEGORIAS.filter(cat => {
+    const e = S.precos[cat];
+    return e && (e.presente === true || e.presente === false);
+  });
+  if (!marcadas.length) return false;
+  return marcadas.every(cat => S.precos[cat].presente === false);
+}
 
 window.voltarTela = function(atualId) {
   if (atualId === "screen-0") return;
@@ -1486,13 +1502,19 @@ function renderEstoque() {
     const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px;";
     const btnM=document.createElement("button"); btnM.textContent="−"; btnM.style.cssText="width:40px;height:40px;border-radius:8px;border:1px solid var(--border);background:var(--card2);font-size:20px;cursor:pointer;color:var(--text);flex-shrink:0;";
     const inp=document.createElement("input"); inp.type="number"; inp.min="0"; inp.value=p.qtd||0; inp.style.cssText="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:22px;font-weight:800;padding:10px;text-align:center;outline:none;font-family:var(--font);";
-    inp.oninput=()=>{ S.estoque[pi].qtd=inp.value; };
     const btnP=document.createElement("button"); btnP.textContent="+"; btnP.style.cssText="width:40px;height:40px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);font-size:20px;cursor:pointer;color:#fff;flex-shrink:0;";
-    btnM.onclick=()=>{ const v=Math.max(0,(parseInt(inp.value)||0)-1); inp.value=v; S.estoque[pi].qtd=v; };
-    btnP.onclick=()=>{ const v=(parseInt(inp.value)||0)+1; inp.value=v; S.estoque[pi].qtd=v; };
+    btnM.onclick=()=>{ const v=Math.max(0,(parseInt(inp.value)||0)-1); inp.value=v; S.estoque[pi].qtd=v; S.estoque[pi].teto48=false; atualizarTeto(); };
+    btnP.onclick=()=>{ const v=(parseInt(inp.value)||0)+1; inp.value=v; S.estoque[pi].qtd=v; S.estoque[pi].teto48=false; atualizarTeto(); };
     const un=document.createElement("span"); un.textContent="un."; un.style.cssText="font-size:13px;color:var(--muted);";
-    row.appendChild(btnM); row.appendChild(inp); row.appendChild(btnP); row.appendChild(un);
-    body.appendChild(row); card.appendChild(body); lista.appendChild(card);
+    // Botão "48+" = teto de contagem (48 ou mais unidades)
+    const btn48=document.createElement("button"); btn48.textContent="48+"; btn48.style.cssText="height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--accent);background:var(--card2);font-size:14px;font-weight:800;cursor:pointer;color:var(--accent);flex-shrink:0;";
+    const tetoLbl=document.createElement("div"); tetoLbl.style.cssText="font-size:11px;color:var(--accent);font-weight:700;margin-top:6px;display:none;"; tetoLbl.textContent="✓ 48 ou mais unidades em estoque";
+    function atualizarTeto(){ tetoLbl.style.display = S.estoque[pi].teto48 ? "block" : "none"; btn48.style.background = S.estoque[pi].teto48 ? "var(--accent)" : "var(--card2)"; btn48.style.color = S.estoque[pi].teto48 ? "#fff" : "var(--accent)"; }
+    btn48.onclick=()=>{ inp.value=48; S.estoque[pi].qtd=48; S.estoque[pi].teto48=true; atualizarTeto(); };
+    inp.oninput=()=>{ S.estoque[pi].qtd=inp.value; S.estoque[pi].teto48=false; atualizarTeto(); };
+    row.appendChild(btnM); row.appendChild(inp); row.appendChild(btnP); row.appendChild(btn48); row.appendChild(un);
+    body.appendChild(row); body.appendChild(tetoLbl); card.appendChild(body); lista.appendChild(card);
+    atualizarTeto();
   });
 }
 
@@ -1652,7 +1674,7 @@ window.prepResumo = ()=>{
   const estSec=document.getElementById("res-estoque-section");
   if (S.estoque.length>0) {
     estSec.style.display="block";
-    document.getElementById("res-estoque").innerHTML=S.estoque.map(e=>`<div class="resumo-row"><span class="key">${e.desc}</span><strong class="val">${e.qtd||0} un.</strong></div>`).join("");
+    document.getElementById("res-estoque").innerHTML=S.estoque.map(e=>`<div class="resumo-row"><span class="key">${e.desc}</span><strong class="val">${e.teto48?"48+ un.":(e.qtd||0)+" un."}</strong></div>`).join("");
   } else { estSec.style.display="none"; }
 
   // Preços
@@ -1677,7 +1699,7 @@ function gerarMsgResumo() {
 `;
   msg+=`━━━━━━━━━━━━━━━━━━━━
 `;
-  msg+=`🏪 *Loja:* ${S.loja}
+  msg+=`🏪 *Loja:* ${S.loja}${S.lojaEnde?`\n📍 *Endereço:* ${S.lojaEnde}`:""}
 📅 *Data:* ${dataFmt}
 👤 *Promotor:* ${S.promotor}
 `;
@@ -1710,13 +1732,20 @@ ${i+1}. *${p.desc}*
 `;
     });
   }
+  // Ruptura total (nenhuma categoria disponível)
+  if (rupturaTotal()) {
+    msg+=`
+━━━━━━━━━━━━━━━━━━━━
+🚨 *RUPTURA TOTAL* — nenhum produto disponível na loja
+`;
+  }
   // Estoque
   if (S.estoque.length>0) {
     msg+=`
 ━━━━━━━━━━━━━━━━━━━━
 📊 *CONTAGEM DE ESTOQUE*
 `;
-    S.estoque.forEach(e=>{ msg+=`• ${e.desc}: *${e.qtd||0} un.*
+    S.estoque.forEach(e=>{ const q = e.teto48 ? "48+ un. (48 ou mais)" : `${e.qtd||0} un.`; msg+=`• ${e.desc}: *${q}*
 `; });
   }
   // Preços
