@@ -1303,7 +1303,7 @@ window.renderTabela = () => {
   }
 
   let html = `<table><thead><tr>
-    <th>Data</th><th>Loja</th><th>Status visita</th><th>Produtos</th>
+    <th>Data</th><th>Loja</th><th>MPdV</th><th>Produtos</th>
     <th>Pior validade</th><th>Status val.</th><th>Fotos</th><th></th><th></th>
   </tr></thead><tbody>`;
 
@@ -1316,6 +1316,11 @@ window.renderTabela = () => {
       pouco_produto:"📦 Pouco produto", outros:"📝 Outros"
     };
     const statusVisitaLabel = statusVisitaLabels[v.statusVisita] || "—";
+    const mpdvIcon = v.mpdv === true
+      ? `<span title="MPdV positivado" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--green-lo);color:var(--green);font-weight:800;font-size:14px;">✓</span>`
+      : v.mpdv === false
+      ? `<span title="Sem MPdV" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(229,57,53,.1);color:var(--red);font-weight:800;font-size:14px;">✕</span>`
+      : `<span style="font-size:10px;color:var(--muted)">—</span>`;
     const pior    = piorDias(v);
     const cls     = colorClass(pior);
     const badgeCls= `badge-${cls}`;
@@ -1334,7 +1339,7 @@ window.renderTabela = () => {
     html += `<tr>
       <td style="white-space:nowrap;font-feature-settings:'tnum'">${dataFmt}</td>
       <td><strong>${v.loja}</strong>${v.lojaEnde?`<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px;">${v.lojaEnde}</div>`:""}</td>
-      <td><span style="font-size:12px;font-weight:600">${statusVisitaLabel}</span></td>
+      <td style="text-align:center;">${mpdvIcon}</td>
       <td style="color:var(--muted)">${nProd} prod.</td>
       <td>
         <div class="life-bar-wrap">
