@@ -1504,14 +1504,15 @@ function renderEstoque() {
     const inp=document.createElement("input"); inp.type="number"; inp.min="0"; inp.value=p.qtd||0; inp.style.cssText="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:22px;font-weight:800;padding:10px;text-align:center;outline:none;font-family:var(--font);";
     const btnP=document.createElement("button"); btnP.textContent="+"; btnP.style.cssText="width:40px;height:40px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);font-size:20px;cursor:pointer;color:#fff;flex-shrink:0;";
     btnM.onclick=()=>{ const v=Math.max(0,(parseInt(inp.value)||0)-1); inp.value=v; S.estoque[pi].qtd=v; S.estoque[pi].teto48=false; atualizarTeto(); };
-    btnP.onclick=()=>{ const v=(parseInt(inp.value)||0)+1; inp.value=v; S.estoque[pi].qtd=v; S.estoque[pi].teto48=false; atualizarTeto(); };
+    btnP.onclick=()=>{ const v=Math.min(100,(parseInt(inp.value)||0)+1); inp.value=v; S.estoque[pi].qtd=v; S.estoque[pi].teto48=(v>=100); atualizarTeto(); };
     const un=document.createElement("span"); un.textContent="un."; un.style.cssText="font-size:13px;color:var(--muted);";
-    // Botão "48+" = teto de contagem (48 ou mais unidades)
-    const btn48=document.createElement("button"); btn48.textContent="48+"; btn48.style.cssText="height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--accent);background:var(--card2);font-size:14px;font-weight:800;cursor:pointer;color:var(--accent);flex-shrink:0;";
-    const tetoLbl=document.createElement("div"); tetoLbl.style.cssText="font-size:11px;color:var(--accent);font-weight:700;margin-top:6px;display:none;"; tetoLbl.textContent="✓ 48 ou mais unidades em estoque";
+    // Botão "100+" = teto de contagem (100 ou mais unidades)
+    const btn48=document.createElement("button"); btn48.textContent="100+"; btn48.style.cssText="height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--accent);background:var(--card2);font-size:14px;font-weight:800;cursor:pointer;color:var(--accent);flex-shrink:0;";
+    const tetoLbl=document.createElement("div"); tetoLbl.style.cssText="font-size:11px;color:var(--accent);font-weight:700;margin-top:6px;display:none;"; tetoLbl.textContent="✓ 100 ou mais unidades em estoque";
     function atualizarTeto(){ tetoLbl.style.display = S.estoque[pi].teto48 ? "block" : "none"; btn48.style.background = S.estoque[pi].teto48 ? "var(--accent)" : "var(--card2)"; btn48.style.color = S.estoque[pi].teto48 ? "#fff" : "var(--accent)"; }
-    btn48.onclick=()=>{ inp.value=48; S.estoque[pi].qtd=48; S.estoque[pi].teto48=true; atualizarTeto(); };
-    inp.oninput=()=>{ S.estoque[pi].qtd=inp.value; S.estoque[pi].teto48=false; atualizarTeto(); };
+    btn48.onclick=()=>{ inp.value=100; S.estoque[pi].qtd=100; S.estoque[pi].teto48=true; atualizarTeto(); };
+    inp.oninput=()=>{ let v=parseInt(inp.value)||0; if(v>100){v=100;inp.value=100;} S.estoque[pi].qtd=v; S.estoque[pi].teto48=(v>=100); atualizarTeto(); };
+    inp.max="100";
     row.appendChild(btnM); row.appendChild(inp); row.appendChild(btnP); row.appendChild(btn48); row.appendChild(un);
     body.appendChild(row); body.appendChild(tetoLbl); card.appendChild(body); lista.appendChild(card);
     atualizarTeto();
@@ -1674,7 +1675,7 @@ window.prepResumo = ()=>{
   const estSec=document.getElementById("res-estoque-section");
   if (S.estoque.length>0) {
     estSec.style.display="block";
-    document.getElementById("res-estoque").innerHTML=S.estoque.map(e=>`<div class="resumo-row"><span class="key">${e.desc}</span><strong class="val">${e.teto48?"48+ un.":(e.qtd||0)+" un."}</strong></div>`).join("");
+    document.getElementById("res-estoque").innerHTML=S.estoque.map(e=>`<div class="resumo-row"><span class="key">${e.desc}</span><strong class="val">${e.teto48?"+ 100 un.":(e.qtd||0)+" un."}</strong></div>`).join("");
   } else { estSec.style.display="none"; }
 
   // Preços
@@ -1745,7 +1746,7 @@ ${i+1}. *${p.desc}*
 ━━━━━━━━━━━━━━━━━━━━
 📊 *CONTAGEM DE ESTOQUE*
 `;
-    S.estoque.forEach(e=>{ const q = e.teto48 ? "48+ un. (48 ou mais)" : `${e.qtd||0} un.`; msg+=`• ${e.desc}: *${q}*
+    S.estoque.forEach(e=>{ const q = e.teto48 ? "+ 100 unidades em estoque" : `${e.qtd||0} un.`; msg+=`• ${e.desc}: *${q}*
 `; });
   }
   // Preços
@@ -1758,7 +1759,7 @@ ${i+1}. *${p.desc}*
     precosReg.forEach(([cat,v])=>{
       if (v.presente===false) msg+=`• ${cat}: ❌
 `;
-      else msg+=`• ${cat}: R$ ${parseFloat(v.preco||0).toFixed(2)}${v.justificativa?" ("+v.justificativa+")":""}
+      else msg+=`• ${cat}: *R$ ${parseFloat(v.preco||0).toFixed(2)}*${v.justificativa?" ("+v.justificativa+")":""}
 `;
     });
   }
@@ -1786,11 +1787,51 @@ window.abrirZap = function() {
 };
 
 /* ─── ENVIO ─── */
+// Aguarda todos os uploads de foto terminarem antes de salvar (evita perder fotos)
+async function aguardarUploads() {
+  const grupos = [
+    {arr:S.fotosAntes, tipo:"antes"},
+    {arr:S.fotosDepois, tipo:"depois"},
+    {arr:S.fotosMpdv, tipo:"mpdv"},
+    {arr:S.fotosValidade, tipo:"validade"},
+    ...S.produtos.map(p=>({arr:p.fotos||[], tipo:"produto"}))
+  ];
+  const pasta = S.loja.replace(/[^a-z0-9]/gi,"_").substring(0,30);
+
+  // Tenta reenviar fotos que ainda não têm URL (upload falhou ou não terminou)
+  const pendentes = [];
+  grupos.forEach(g => {
+    (g.arr||[]).forEach((f,i) => {
+      if (f && f.b64 && !f.url) {
+        const nome = `${g.tipo}_retry_${Date.now()}_${i}`;
+        pendentes.push(
+          uploadCloudinary(f.b64, pasta, nome).then(u => { if (u) f.url = u; }).catch(()=>{})
+        );
+      }
+    });
+  });
+  if (pendentes.length) await Promise.all(pendentes);
+
+  // Retorna quantas fotos ainda ficaram sem URL (falha real de rede)
+  let falhas = 0;
+  grupos.forEach(g => (g.arr||[]).forEach(f => { if (f && f.b64 && !f.url) falhas++; }));
+  return falhas;
+}
+
 window.enviar = async ()=>{
   const btn=document.getElementById("btn-enviar");
   const txt=document.getElementById("btn-txt");
   const spin=document.getElementById("btn-spin");
   btn.disabled=true; txt.textContent="Enviando…"; spin.style.display="block";
+
+  // Espera uploads pendentes (corrige fotos que sumiam por finalizar antes do upload)
+  txt.textContent="Salvando fotos…";
+  const falhas = await aguardarUploads();
+  if (falhas > 0) {
+    const seguir = confirm(`${falhas} foto(s) ainda não subiram para a nuvem (possível falha de internet). Se continuar, essas fotos podem não ser salvas.\n\nToque em Cancelar para tentar de novo com melhor sinal, ou OK para enviar mesmo assim.`);
+    if (!seguir) { btn.disabled=false; txt.textContent="Enviar registro"; spin.style.display="none"; return; }
+  }
+  txt.textContent="Enviando…";
 
   const payload={
     loja:S.loja, lojaEnde:S.lojaEnde||"", data:S.data, promotor:S.promotor,
