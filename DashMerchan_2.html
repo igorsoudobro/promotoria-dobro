@@ -1223,11 +1223,16 @@ window.carregarDados = async () => {
     try {
       initFirebase();
       // Carrega visitas E lojas/promotores EM PARALELO (antes era sequencial e travava)
+      // Sem orderBy no Firestore: o orderBy exclui documentos sem o campo "timestamp",
+      // o que fazia visitas gravadas sem timestamp ficarem invisíveis. Ordenamos no cliente.
       const [snap] = await Promise.all([
-        firebase.firestore().collection("visitas").orderBy("timestamp","desc").get(),
+        firebase.firestore().collection("visitas").get(),
         carregarLojasPromotores()
       ]);
       VISITAS = snap.docs.map(d=>({id:d.id,...d.data()}));
+      // Ordena por timestamp; se faltar, usa horaFim, senão a data da visita
+      const chaveData = v => v.timestamp || v.horaFim || (v.data ? v.data + "T00:00:00" : "");
+      VISITAS.sort((a,b) => (chaveData(b)).localeCompare(chaveData(a)));
     } catch(e) { console.error(e); VISITAS = []; }
   } else { VISITAS = []; }
 
