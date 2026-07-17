@@ -1121,7 +1121,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // nada a fazer aqui pois o input é dinâmico
 
   // Carrega config de telas e preços ideais do Firestore
-  await carregarConfigs();
+  // (carregarConfigs não é async — as configs chegam depois via onSnapshot, não aqui)
+  carregarConfigs();
   // Carrega modificações do catálogo (categorias/SKUs ativados no dash)
   await carregarCatalogoConfig();
 
@@ -1130,6 +1131,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Tenta reenviar visitas que ficaram presas no celular (falha de internet no envio)
   reenviarPendentes();
 });
+
+// Id único gerado no aparelho: gravar duas vezes com o MESMO id reescreve o mesmo
+// documento no Firestore — visita duplicada fica impossível por construção.
+function gerarIdVisita() {
+  return "v_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+}
+// Corrida entre a gravação e um timer: sem rede, o Firestore NÃO rejeita (a promise
+// fica pendente para sempre) — o timeout é o que devolve o controle ao app.
+// Se o set() que estourou o timeout completar sozinho quando o sinal voltar,
+// o reenvio posterior com o mesmo id apenas reescreve o mesmo documento.
+function salvarComTimeout(id, payload, ms) {
+  return Promise.race([
+    firebase.firestore().collection("visitas").doc(id).set(payload),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout: sem resposta do servidor")), ms))
+  ]);
+}
+function persistirPendentes(fila) {
+  try { localStorage.setItem("visitas_pendentes", JSON.stringify(fila)); } catch(e) {}
+}
 
 // Reenvia visitas guardadas no localStorage quando o app abre com internet.
 // Uma visita fica "presa" quando o salvamento no Firestore falha (ex: sinal caiu no envio).
@@ -1141,23 +1161,30 @@ async function reenviarPendentes() {
   if (!Array.isArray(arr) || !arr.length) return;
 
   initFirebase();
-  const db = firebase.firestore();
-  const restantes = [];
   let enviadas = 0;
 
-  for (const item of arr) {
-    const payload = item && item.payload ? item.payload : item; // compat formato antigo
-    if (!payload) continue;
+  // Normaliza formatos antigos (payload solto ou item sem id) e PERSISTE o id
+  // antes de tentar enviar — assim a mesma pendência nunca troca de id entre tentativas.
+  let fila = arr.map(item => {
+    if (item && item.payload) return item.id ? item : { ts: item.ts || Date.now(), id: gerarIdVisita(), payload: item.payload };
+    return { ts: Date.now(), id: gerarIdVisita(), payload: item };
+  }).filter(item => item.payload);
+  persistirPendentes(fila);
+
+  while (fila.length) {
+    const item = fila[0];
     try {
-      await db.collection("visitas").add(payload);
+      await salvarComTimeout(item.id, item.payload, 15000);
       enviadas++;
+      // Remove do localStorage A CADA sucesso (não só no fim do loop):
+      // fechar o app no meio do reenvio não repete visita na próxima abertura.
+      fila.shift();
+      persistirPendentes(fila);
     } catch(e) {
       console.warn("Falha ao reenviar visita pendente:", e);
-      restantes.push(item); // mantém as que ainda falharam para tentar depois
+      break; // sinal ruim: para o loop e tenta o resto na próxima abertura
     }
   }
-
-  try { localStorage.setItem("visitas_pendentes", JSON.stringify(restantes)); } catch(e) {}
 
   if (enviadas > 0) {
     toast(`✓ ${enviadas} visita(s) que estava(m) pendente(s) foram enviadas agora.`, "ok");
@@ -1260,6 +1287,7 @@ window.avancarIdentificacao = function() {
 };
 
 /* ─── AUTOCOMPLETE LOJA ─── */
+let LOJAS_FILTRADAS = []; // resultado atual do dropdown; a seleção usa o índice
 window.filtrarLojas = function(termo) {
   const dd = document.getElementById("loja-dropdown");
   const termLower = termo.toLowerCase().trim();
@@ -1272,10 +1300,13 @@ window.filtrarLojas = function(termo) {
     return termos.every(t => alvo.includes(t));
   }).slice(0,50);
   if (!filtradas.length) { dd.style.display="none"; return; }
-  dd.innerHTML = filtradas.map(l => {
+  LOJAS_FILTRADAS = filtradas;
+  // Seleção por índice: interpolar nome/endereço dentro do onclick quebrava o HTML
+  // quando a loja tinha apóstrofo ou aspas no nome (o replace antigo não escapava nada)
+  dd.innerHTML = filtradas.map((l, i) => {
     let hl = l.nome;
     termos.forEach(t => { const esc = t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); hl = hl.replace(new RegExp("("+esc+")","gi"),"<strong>$1</strong>"); });
-    return `<div onclick="selecionarLoja('${l.nome.replace(/'/g,"\'")}','${(l.ende||"").replace(/'/g,"\'")}')"
+    return `<div onclick="selecionarLojaIdx(${i})"
       style="padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;"
       onmouseover="this.style.background='var(--accent-lo)'" onmouseout="this.style.background='transparent'">
       <div style="font-weight:600;color:var(--text);">${hl}</div>
@@ -1283,6 +1314,10 @@ window.filtrarLojas = function(termo) {
     </div>`;
   }).join("");
   dd.style.display="block";
+};
+window.selecionarLojaIdx = function(i) {
+  const l = LOJAS_FILTRADAS[i];
+  if (l) selecionarLoja(l.nome, l.ende||"");
 };
 window.selecionarLoja = function(nome,ende) {
   S.loja = nome;
@@ -1361,10 +1396,15 @@ function processarFoto(file, tipo) {
     const b64=e.target.result;
     const pasta=S.loja.replace(/[^a-z0-9]/gi,"_").substring(0,30);
     const nome=`${tipo}_${Date.now()}`;
-    if (tipo==="antes")  { S.fotosAntes.push({b64,url:null});  const i=S.fotosAntes.length-1;  renderFotoGrid("fotos-antes-grid",  S.fotosAntes,  "antes");  atualizarBtnFoto("antes");  uploadCloudinary(b64,pasta,nome).then(u=>{S.fotosAntes[i].url=u;  atualizarStatusUpload("upload-antes-status",  S.fotosAntes);}); }
-    if (tipo==="depois") { S.fotosDepois.push({b64,url:null}); const i=S.fotosDepois.length-1; renderFotoGrid("fotos-depois-grid", S.fotosDepois, "depois"); atualizarBtnFoto("depois"); uploadCloudinary(b64,pasta,nome).then(u=>{S.fotosDepois[i].url=u; atualizarStatusUpload("upload-depois-status", S.fotosDepois);}); }
-    if (tipo==="mpdv")   { S.fotosMpdv.push({b64,url:null});   const i=S.fotosMpdv.length-1;   renderFotoGrid("fotos-mpdv-grid",   S.fotosMpdv,   "mpdv");   atualizarBtnFoto("mpdv");   uploadCloudinary(b64,pasta,nome).then(u=>{S.fotosMpdv[i].url=u;   atualizarStatusUpload("upload-mpdv-status",   S.fotosMpdv);}); }
-    if (tipo==="validade") { S.fotosValidade.push({b64,url:null}); const i=S.fotosValidade.length-1; renderFotoGrid("fotos-validade-grid", S.fotosValidade, "validade"); atualizarBtnFoto("validade"); uploadCloudinary(b64,pasta,nome).then(u=>{S.fotosValidade[i].url=u; atualizarStatusUpload("upload-validade-status", S.fotosValidade);}); }
+    // Guarda a REFERÊNCIA do objeto da foto (não o índice): se o promotor remover uma foto
+    // enquanto outra ainda sobe, o splice desloca os índices e a URL caía na foto errada.
+    // Com a referência, a URL sempre vai para a foto certa; se ela foi removida, o objeto
+    // está fora do array e a atribuição é inócua.
+    const foto = {b64, url:null};
+    if (tipo==="antes")  { S.fotosAntes.push(foto);  renderFotoGrid("fotos-antes-grid",  S.fotosAntes,  "antes");  atualizarBtnFoto("antes");  uploadCloudinary(b64,pasta,nome).then(u=>{foto.url=u;  atualizarStatusUpload("upload-antes-status",  S.fotosAntes);}); }
+    if (tipo==="depois") { S.fotosDepois.push(foto); renderFotoGrid("fotos-depois-grid", S.fotosDepois, "depois"); atualizarBtnFoto("depois"); uploadCloudinary(b64,pasta,nome).then(u=>{foto.url=u; atualizarStatusUpload("upload-depois-status", S.fotosDepois);}); }
+    if (tipo==="mpdv")   { S.fotosMpdv.push(foto);   renderFotoGrid("fotos-mpdv-grid",   S.fotosMpdv,   "mpdv");   atualizarBtnFoto("mpdv");   uploadCloudinary(b64,pasta,nome).then(u=>{foto.url=u;   atualizarStatusUpload("upload-mpdv-status",   S.fotosMpdv);}); }
+    if (tipo==="validade") { S.fotosValidade.push(foto); renderFotoGrid("fotos-validade-grid", S.fotosValidade, "validade"); atualizarBtnFoto("validade"); uploadCloudinary(b64,pasta,nome).then(u=>{foto.url=u; atualizarStatusUpload("upload-validade-status", S.fotosValidade);}); }
   };
   r.readAsDataURL(file);
 }
@@ -1476,10 +1516,17 @@ window.adicionarFotoProduto = function(pi, inp) {
     const b64 = e.target.result;
     const pasta = S.loja.replace(/[^a-z0-9]/gi,"_").substring(0,30);
     const nome = `validade_${S.produtos[pi].sku}_${Date.now()}`;
-    S.produtos[pi].fotos.push({b64, url:null});
-    const i = S.produtos[pi].fotos.length-1;
+    // Referências (não índices): pi e i deslocam se o promotor remover outro produto/foto
+    // enquanto este upload está em andamento — a URL caía no produto/foto errado.
+    const prod = S.produtos[pi];
+    const foto = {b64, url:null};
+    prod.fotos.push(foto);
     renderFotosProduto(pi);
-    uploadCloudinary(b64, pasta, nome).then(u => { if(S.produtos[pi]) { S.produtos[pi].fotos[i].url = u; renderFotosProduto(pi); } });
+    uploadCloudinary(b64, pasta, nome).then(u => {
+      foto.url = u;
+      const idxAtual = S.produtos.indexOf(prod); // posição atual do produto (pode ter mudado)
+      if (idxAtual >= 0) renderFotosProduto(idxAtual);
+    });
   };
   r.readAsDataURL(file);
 };
@@ -1716,7 +1763,7 @@ window.prepResumo = ()=>{
   let rows=`
     <div class="resumo-row"><span class="key">Loja</span><span class="val">${S.loja}</span></div>
     <div class="resumo-row"><span class="key">Data</span><span class="val">${dataFmt}</span></div>
-    <div class="resumo-row"><span class="key">Promotor</span><span class="val">${S.promotor||"Felipe"}</span></div>
+    <div class="resumo-row"><span class="key">Promotor</span><span class="val">${S.promotor||"—"}</span></div>
     <div class="resumo-row"><span class="key">MPdV</span><span class="val">${S.mpdv===true?"✅ Sim":S.mpdv===false?"❌ Não":"—"}</span></div>
     <div class="resumo-row"><span class="key">Validade</span><span class="val">${S.statusValidade===true?"⚠️ Há problema":S.statusValidade===false?"✅ OK":"—"}</span></div>
   `;
@@ -1850,8 +1897,17 @@ ${i+1}. *${p.desc}*
 
 window.abrirZap = function() {
   const msg=gerarMsgResumo();
-  try { navigator.clipboard.writeText(msg); } catch(e) {
+  const fallbackCopiar = () => {
     try { const el=document.createElement("textarea"); el.value=msg; el.style.position="fixed"; el.style.opacity="0"; document.body.appendChild(el); el.focus(); el.select(); document.execCommand("copy"); document.body.removeChild(el); } catch(e2){}
+  };
+  try {
+    // navigator.clipboard.writeText retorna uma Promise: se ela rejeitar (permissão negada,
+    // contexto não-seguro etc.), isso NÃO cai no catch síncrono abaixo — precisa de .catch() próprio,
+    // senão o fallback via execCommand nunca rodava nesse caso.
+    const p = navigator.clipboard.writeText(msg);
+    if (p && typeof p.catch === "function") p.catch(fallbackCopiar);
+  } catch(e) {
+    fallbackCopiar(); // navigator.clipboard nem existe (webview antiga)
   }
   toast("✓ Resumo copiado! Abrindo WhatsApp…","ok");
   const enc=encodeURIComponent(msg);
@@ -1927,14 +1983,19 @@ window.enviar = async ()=>{
     fotoDepoisURL:S.fotosDepois[0]?.url||null
   };
 
+  const idVisita = gerarIdVisita();
   try {
     initFirebase();
-    await firebase.firestore().collection("visitas").add(payload);
+    // set() com id gerado no aparelho + timeout de 15s: sem rede o Firestore não
+    // rejeita sozinho (ficava "Enviando…" para sempre e a visita se perdia ao fechar o app)
+    await salvarComTimeout(idVisita, payload, 15000);
     toast("✓ Registro salvo!","ok");
     mostrarBotaoZap();
   } catch(e) {
     console.error(e);
-    try { const arr=JSON.parse(localStorage.getItem("visitas_pendentes")||"[]"); arr.push({ts:Date.now(),payload}); localStorage.setItem("visitas_pendentes",JSON.stringify(arr)); } catch(e2){}
+    // Guarda com o MESMO id: se o set() do timeout completar sozinho depois,
+    // o reenvio apenas reescreve o mesmo documento — sem visita duplicada.
+    try { const arr=JSON.parse(localStorage.getItem("visitas_pendentes")||"[]"); arr.push({ts:Date.now(),id:idVisita,payload}); localStorage.setItem("visitas_pendentes",JSON.stringify(arr)); } catch(e2){}
     toast("⚠️ Sem internet para salvar agora. A visita foi guardada no celular e será enviada sozinha quando você abrir o app com sinal.","err");
     mostrarBotaoZap();
   }
@@ -1964,7 +2025,7 @@ function reset() {
   try { document.getElementById("obs-inicial").value=""; } catch(e){}
   try { document.getElementById("obs-final").value=""; } catch(e){}
   ["fotos-antes-grid","fotos-depois-grid","fotos-mpdv-grid","fotos-validade-grid"].forEach(id=>{ try{document.getElementById(id).innerHTML="";}catch(e){} });
-  ["btn-add-foto-antes","btn-add-foto-depois","btn-add-foto-mpdv"].forEach(id=>{ try{const b=document.getElementById(id);b.innerHTML="📷 Adicionar foto";b.style.display="block";}catch(e){} });
+  ["btn-add-foto-antes","btn-add-foto-depois","btn-add-foto-mpdv","btn-add-foto-validade"].forEach(id=>{ try{const b=document.getElementById(id);b.innerHTML="📷 Adicionar foto";b.style.display="block";}catch(e){} });
   try { document.getElementById("mpdv-sim").style.borderColor=document.getElementById("mpdv-nao").style.borderColor="var(--border)"; document.getElementById("mpdv-foto-field").style.display="none"; document.getElementById("btn-mpdv-continuar").style.display="none"; } catch(e){}
   try { document.getElementById("val-sim").style.borderColor=document.getElementById("val-nao").style.borderColor="var(--border)"; document.getElementById("validade-prod-field").style.display="none"; } catch(e){}
   document.querySelectorAll(".cat-pill").forEach(p=>p.classList.remove("selected"));

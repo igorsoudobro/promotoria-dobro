@@ -1233,7 +1233,19 @@ window.carregarDados = async () => {
       // Ordena por timestamp; se faltar, usa horaFim, senão a data da visita
       const chaveData = v => v.timestamp || v.horaFim || (v.data ? v.data + "T00:00:00" : "");
       VISITAS.sort((a,b) => (chaveData(b)).localeCompare(chaveData(a)));
-    } catch(e) { console.error(e); VISITAS = []; }
+    } catch(e) {
+      console.error(e);
+      // Antes: VISITAS=[] silencioso — um erro transitório fazia o dash exibir "0 visitas" como se fosse real.
+      const erroHtml = `<div style="text-align:center;padding:40px 20px;">
+        <div style="font-size:15px;font-weight:700;color:var(--red);margin-bottom:6px;">⚠ Erro ao carregar os dados</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Pode ser conexão ou permissão. Os números exibidos podem estar desatualizados.</div>
+        <button onclick="carregarDados()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">↻ Tentar novamente</button>
+      </div>`;
+      document.getElementById("tab-container").innerHTML   = erroHtml;
+      document.getElementById("venc-container").innerHTML  = erroHtml;
+      document.getElementById("lojas-container").innerHTML = erroHtml;
+      return; // não sobrescreve o aviso com tabelas vazias
+    }
   } else { VISITAS = []; }
 
   calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
@@ -1308,7 +1320,7 @@ window.renderTabela = () => {
   let vs = [...VISITAS];
 
   if (busca) vs = vs.filter(v =>
-    (v.loja+" "+(v.lojaEnde||"")).toLowerCase().includes(busca) ||
+    ((v.loja||"")+" "+(v.lojaEnde||"")).toLowerCase().includes(busca) ||
     (v.produtos||[]).some(p => p.desc?.toLowerCase().includes(busca))
   );
   if (data) vs = vs.filter(v => v.data === data);
@@ -1317,7 +1329,7 @@ window.renderTabela = () => {
 
   if (sort==="data-asc")  vs.sort((a,b)=>a.timestamp>b.timestamp?1:-1);
   else if (sort==="data-desc") vs.sort((a,b)=>a.timestamp>b.timestamp?-1:1);
-  else if (sort==="loja") vs.sort((a,b)=>a.loja.localeCompare(b.loja,"pt-BR"));
+  else if (sort==="loja") vs.sort((a,b)=>(a.loja||"").localeCompare(b.loja||"","pt-BR"));
 
   if (!vs.length) {
     document.getElementById("tab-container").innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhuma visita encontrada.</div>`;
@@ -1384,7 +1396,7 @@ window.renderTabela = () => {
       <td><span class="badge ${badgeCls}">${statusTxt}</span></td>
       <td><div style="display:flex;gap:5px;align-items:center">${fA}${fD}</div></td>
       <td><button onclick="openModal('${v.id}')" style="background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;">Ver</button></td>
-      <td>${podeApagarVisitas() ? `<button onclick="confirmarExclusao('${v.id}', '${v.loja.replace(/'/g, "")}' )" title="Excluir visita" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px 6px;transition:color .15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>` : ""}</td>
+      <td>${podeApagarVisitas() ? `<button onclick="confirmarExclusao('${v.id}', '${(v.loja||"").replace(/'/g, "")}' )" title="Excluir visita" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px 6px;transition:color .15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>` : ""}</td>
     </tr>`;
   });
 
@@ -1445,8 +1457,8 @@ window.renderVencimentos = () => {
   // Sort
   if (sortBy==="dias-asc")  lotes.sort((a,b)=>(a.dias??9999)-(b.dias??9999));
   else if (sortBy==="dias-desc") lotes.sort((a,b)=>(b.dias??0)-(a.dias??0));
-  else if (sortBy==="loja") lotes.sort((a,b)=>a.loja.localeCompare(b.loja,"pt-BR"));
-  else if (sortBy==="produto") lotes.sort((a,b)=>a.desc.localeCompare(b.desc,"pt-BR"));
+  else if (sortBy==="loja") lotes.sort((a,b)=>(a.loja||"").localeCompare(b.loja||"","pt-BR"));
+  else if (sortBy==="produto") lotes.sort((a,b)=>(a.desc||"").localeCompare(b.desc||"","pt-BR"));
 
   if (!lotes.length) {
     document.getElementById("venc-container").innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div>Nenhum lote neste filtro.</div>`;
@@ -2054,7 +2066,7 @@ window.openModal = (id) => {
     <div class="modal-section-label">Informações</div>
     <div class="modal-card">
       <div class="modal-row"><span class="modal-key">Data</span><span class="modal-val">${dataFmt}</span></div>
-      <div class="modal-row"><span class="modal-key">Promotor</span><span class="modal-val">${v.promotor||"Felipe"}</span></div>
+      <div class="modal-row"><span class="modal-key">Promotor</span><span class="modal-val">${v.promotor||"—"}</span></div>
       ${v.obsInicial?`<div class="modal-row"><span class="modal-key">Obs. inicial</span><span class="modal-val">${v.obsInicial}</span></div>`:""}
       ${v.obsFinal  ?`<div class="modal-row"><span class="modal-key">Obs. final</span><span class="modal-val">${v.obsFinal}</span></div>`:""}
     </div>
@@ -3400,11 +3412,25 @@ window.salvarLojaManual = async function() {
 
 
 
+// Chave ESTRITA usada só pelo detector de duplicatas: nome + rua + número.
+// A chaveLojaCob (nome + primeiro número) é frouxa de propósito para casar visitas com lojas,
+// mas aqui gerava falso positivo: mesma rede em ruas diferentes com o mesmo número (ex: dois "84").
+function chaveDuplicata(nome, ende) {
+  const limpar = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  const num = (ende||"").match(/\d{1,6}/);
+  // Rua: trecho do endereço antes do primeiro número, sem prefixo de logradouro
+  // (tolera "Av. Cassandoca" vs "Avenida Cassandoca")
+  let rua = limpar((ende||"").split(/\d/)[0]);
+  rua = rua.replace(/^(rua|r|avenida|av|alameda|al|travessa|tv|estrada|est|rodovia|rod|praca|pca|largo|lgo)\s+/,"");
+  return limpar(nome).replace(/ /g,"") + "|" + rua.replace(/ /g,"") + "|" + (num?num[0]:"");
+}
+
 window.detectarDuplicatas = async function() {
-  // Agrupa lojas por chave (nome + número do endereço) — mesmo crosscheck do sistema
+  // Agrupa lojas por chave estrita (nome + rua + número) — ver chaveDuplicata acima
   const grupos = {};
   LOJAS_DB.forEach(l => {
-    const k = chaveLoja(l.nome, l.ende);
+    const k = chaveDuplicata(l.nome, l.ende);
     (grupos[k] = grupos[k] || []).push(l);
   });
   const duplicados = Object.entries(grupos).filter(([,arr]) => arr.length > 1);
@@ -3424,7 +3450,7 @@ window.detectarDuplicatas = async function() {
       <h3 style="font-size:15px;font-weight:700;">Lojas duplicadas <span style="color:var(--muted);font-weight:400;">(${duplicados.length} grupo(s), ${totalExtras} repetida(s))</span></h3>
       <button onclick="document.getElementById('dup-resultado').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 16px;">Cada grupo abaixo é a mesma loja cadastrada mais de uma vez. Mantenha uma e apague as repetidas. O histórico de visitas não é afetado.</p>`;
+    <p style="font-size:12px;color:var(--muted);margin:0 0 16px;">Cada grupo abaixo é a mesma loja cadastrada mais de uma vez. Escolha qual manter e apague as demais. O histórico de visitas não é afetado.</p>`;
 
   duplicados.forEach(([k, arr]) => {
     html += `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
@@ -3437,9 +3463,7 @@ window.detectarDuplicatas = async function() {
           <div>${l.ende||"(sem endereço)"}</div>
           <div style="color:var(--muted);">${l.uf||"—"} · ${l.canal||"—"} · ${prom}</div>
         </div>
-        ${i===0
-          ? `<span style="font-size:11px;font-weight:700;color:var(--green);white-space:nowrap;">✓ manter</span>`
-          : `<button onclick="apagarLojaDuplicada('${idEsc}')" style="background:var(--card);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">🗑 Apagar esta</button>`}
+        <button onclick="apagarLojaDuplicada('${idEsc}')" style="background:var(--card);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">🗑 Apagar esta</button>
       </div>`;
     });
     html += `</div>`;
@@ -3722,9 +3746,11 @@ window.salvarCadastroLojas = async function() {
   btn.disabled = true; btn.textContent = "Salvando…";
   try {
     const db = firebase.firestore();
-    const batch = db.batch();
-    let mudancas = 0;
-    LOJAS_DB.forEach(l => {
+    // Batch em blocos de 400: o Firestore limita a 500 operações por batch.
+    // Com "selecionar todas" numa base de ~1.800 lojas, um batch único falhava inteiro.
+    let batch = db.batch();
+    let noBatch = 0, mudancas = 0;
+    for (const l of LOJAS_DB) {
       const tinha = (l.promotores||[]).includes(promotor);
       const querendo = !!cadastroSelecao[l.id];
       if (tinha !== querendo) {
@@ -3733,10 +3759,15 @@ window.salvarCadastroLojas = async function() {
         if (!querendo) promotores = promotores.filter(p=>p!==promotor);
         l.promotores = promotores;
         batch.update(db.collection("lojas").doc(l.id), {promotores});
-        mudancas++;
+        mudancas++; noBatch++;
+        if (noBatch >= 400) {
+          await batch.commit();
+          batch = db.batch(); noBatch = 0;
+          btn.textContent = `Salvando… (${mudancas})`;
+        }
       }
-    });
-    if (mudancas > 0) await batch.commit();
+    }
+    if (noBatch > 0) await batch.commit();
     btn.disabled = false; btn.textContent = "💾 Salvar alterações";
     alert(`✓ Salvo! ${mudancas} loja(s) atualizada(s) para ${promotor}.`);
   } catch(e) {
@@ -3950,7 +3981,13 @@ window.executarExclusao = async function() {
   if (FB_OK) {
     try {
       await firebase.firestore().collection("visitas").doc(idParaExcluir).delete();
-    } catch(e) { console.error(e); }
+    } catch(e) {
+      // Antes: erro só no console e a visita sumia da tela mesmo assim (voltava no reload).
+      console.error(e);
+      btn.textContent = "Excluir"; btn.disabled = false;
+      alert("Não foi possível excluir a visita (conexão ou permissão). Ela NÃO foi apagada. Tente novamente.");
+      return;
+    }
   }
 
   // Remove localmente sem precisar recarregar tudo
