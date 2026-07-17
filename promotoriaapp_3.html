@@ -1126,7 +1126,43 @@ document.addEventListener("DOMContentLoaded", async () => {
   await carregarCatalogoConfig();
 
   atualizarProgress("screen-0");
+
+  // Tenta reenviar visitas que ficaram presas no celular (falha de internet no envio)
+  reenviarPendentes();
 });
+
+// Reenvia visitas guardadas no localStorage quando o app abre com internet.
+// Uma visita fica "presa" quando o salvamento no Firestore falha (ex: sinal caiu no envio).
+async function reenviarPendentes() {
+  if (!FB_OK) return;
+  let arr;
+  try { arr = JSON.parse(localStorage.getItem("visitas_pendentes") || "[]"); }
+  catch(e) { return; }
+  if (!Array.isArray(arr) || !arr.length) return;
+
+  initFirebase();
+  const db = firebase.firestore();
+  const restantes = [];
+  let enviadas = 0;
+
+  for (const item of arr) {
+    const payload = item && item.payload ? item.payload : item; // compat formato antigo
+    if (!payload) continue;
+    try {
+      await db.collection("visitas").add(payload);
+      enviadas++;
+    } catch(e) {
+      console.warn("Falha ao reenviar visita pendente:", e);
+      restantes.push(item); // mantém as que ainda falharam para tentar depois
+    }
+  }
+
+  try { localStorage.setItem("visitas_pendentes", JSON.stringify(restantes)); } catch(e) {}
+
+  if (enviadas > 0) {
+    toast(`✓ ${enviadas} visita(s) que estava(m) pendente(s) foram enviadas agora.`, "ok");
+  }
+}
 
 function carregarConfigs() {
   if (!FB_OK) return;
@@ -1899,7 +1935,7 @@ window.enviar = async ()=>{
   } catch(e) {
     console.error(e);
     try { const arr=JSON.parse(localStorage.getItem("visitas_pendentes")||"[]"); arr.push({ts:Date.now(),payload}); localStorage.setItem("visitas_pendentes",JSON.stringify(arr)); } catch(e2){}
-    toast("Erro ao salvar: "+(e.message||e.code),"err");
+    toast("⚠️ Sem internet para salvar agora. A visita foi guardada no celular e será enviada sozinha quando você abrir o app com sinal.","err");
     mostrarBotaoZap();
   }
   btn.disabled=false; txt.textContent="Salvar registro"; spin.style.display="none";
