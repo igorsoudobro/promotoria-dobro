@@ -1060,6 +1060,11 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
       <h3 style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:16px;">Relatórios separados</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;">
         <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+          <div style="font-size:15px;font-weight:700;margin-bottom:6px;">🏬 Lojas</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:18px;">Todas as lojas com endereço, frequência de visita e promotor vinculado.</p>
+          <button onclick="exportarLojas()" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--text);">⬇️ Excel</button>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
           <div style="font-size:15px;font-weight:700;margin-bottom:6px;">📋 Visitas</div>
           <p style="font-size:12px;color:var(--muted);margin-bottom:18px;">Todas as visitas com loja, data, promotor, status.</p>
           <button onclick="exportarVisitas()" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--text);">⬇️ Excel</button>
@@ -3227,6 +3232,21 @@ function baixarWb(wb, nome) {
   XLSX.writeFile(wb, nome + ".xlsx");
 }
 
+window.exportarLojas = function() {
+  if (!LOJAS_DB.length) { alert("Nenhuma loja na base para exportar."); return; }
+  const f = relFiltro();
+  let lojas = LOJAS_DB;
+  if (f.prom) lojas = lojas.filter(l => (l.promotores||[]).includes(f.prom));
+  const dados = lojas.map(l => ({
+    Loja: l.nome || "",
+    "Endereço": l.ende || "",
+    "Frequência de Visita": l.freqAtr || l.freq || "",
+    "Promotor Vinculado": (l.promotores||[]).length ? l.promotores.join(", ") : "Sem promotor alocado"
+  })).sort((a,b) => (a.Loja||"").localeCompare(b.Loja||"", "pt-BR"));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), "Lojas");
+  baixarWb(wb, "Relatorio_Lojas" + (f.prom ? "_" + f.prom.replace(/[^a-zA-Z0-9]/g,"") : ""));
+};
 window.exportarVisitas = function() {
   const dados = dadosVisitas();
   if (!dados.length) { alert("Nenhuma visita no filtro selecionado."); return; }
