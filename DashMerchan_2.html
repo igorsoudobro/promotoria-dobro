@@ -2072,20 +2072,20 @@ window.renderPrecos = async function() {
 };
 
 // Exclui um preço específico de uma visita (item: preço errado do promotor).
-// NÃO descadastra a visita — só remove a categoria do objeto precos daquele documento.
+// NÃO edita o documento da visita (as regras do Firestore não permitem update em "visitas").
+// Em vez disso, marca o preço numa lista separada (config/precos_removidos); ele passa a ser
+// ignorado em toda a análise — média, histórico e anomalias. É reversível.
 window.excluirPreco = async function(idVisita, cat, loja) {
   if (!podeApagarVisitas()) { alert("Apenas o administrador pode excluir preços."); return; }
   if (!confirm(`Excluir o preço de "${cat}" registrado em "${loja}"?\n\nA visita continua cadastrada; apenas este preço sai da análise de preço médio.`)) return;
-  const v = VISITAS.find(x => x.id === idVisita);
-  if (!v || !v.precos || !v.precos[cat]) { alert("Registro não encontrado (pode já ter sido removido). Recarregue."); return; }
+  const chave = idVisita + "||" + cat;
+  const anterior = PRECOS_REMOVIDOS[chave];
+  PRECOS_REMOVIDOS[chave] = true;
   try {
-    // Remove a categoria do mapa de preços e regrava o documento da visita
-    const novoPrecos = Object.assign({}, v.precos);
-    delete novoPrecos[cat];
-    await firebase.firestore().collection("visitas").doc(idVisita).update({ precos: novoPrecos });
-    v.precos = novoPrecos; // atualiza local sem recarregar tudo
+    await firebase.firestore().collection("config").doc("precos_removidos").set(PRECOS_REMOVIDOS);
     renderPrecos();
   } catch(e) {
+    if (anterior === undefined) delete PRECOS_REMOVIDOS[chave]; else PRECOS_REMOVIDOS[chave] = anterior;
     console.error(e);
     alert("Não foi possível excluir o preço (conexão ou permissão). Nada foi alterado.");
   }
@@ -2305,6 +2305,11 @@ async function carregarVisitasManuais() {
     const snap = await firebase.firestore().collection("config").doc("visitas_manuais").get();
     if (snap.exists) VISITAS_MANUAIS = snap.data() || {};
   } catch(e) { console.warn("Visitas manuais:", e); }
+  // Preços excluídos da análise (lista separada — não edita o documento da visita)
+  try {
+    const snapR = await firebase.firestore().collection("config").doc("precos_removidos").get();
+    if (snapR.exists) PRECOS_REMOVIDOS = snapR.data() || {};
+  } catch(e) { console.warn("Preços removidos:", e); }
 }
 
 window.salvarAlocacao = async function() {
