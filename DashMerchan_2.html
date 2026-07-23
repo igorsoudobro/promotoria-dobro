@@ -635,6 +635,18 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           <input type="date" class="filter-select" id="f-precos-fim" onchange="renderPrecos()">
         </div>
         <button onclick="limparPeriodoPrecos()" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);color:var(--muted);">Limpar período</button>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede</label>
+          <select class="filter-select" id="f-precos-rede" onchange="onChangePrecosRede()" style="min-width:150px;"><option value="">Todas as redes</option></select>
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Loja</label>
+          <select class="filter-select" id="f-precos-loja" onchange="renderPrecos()" style="min-width:170px;"><option value="">Todas as lojas</option></select>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;cursor:pointer;padding-bottom:2px;color:var(--text);">
+          <input type="checkbox" id="f-precos-anomalias" onchange="renderPrecos()" style="width:16px;height:16px;accent-color:var(--red);"> ⚠️ Só anomalias
+          <span style="font-size:11px;color:var(--muted);font-weight:400;">(divergência &gt; 100%)</span>
+        </label>
       </div>
       <div class="table-shell">
         <table>
@@ -1060,11 +1072,6 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
       <h3 style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:16px;">Relatórios separados</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;">
         <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
-          <div style="font-size:15px;font-weight:700;margin-bottom:6px;">🏬 Lojas</div>
-          <p style="font-size:12px;color:var(--muted);margin-bottom:18px;">Todas as lojas com endereço, frequência de visita e promotor vinculado.</p>
-          <button onclick="exportarLojas()" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--text);">⬇️ Excel</button>
-        </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
           <div style="font-size:15px;font-weight:700;margin-bottom:6px;">📋 Visitas</div>
           <p style="font-size:12px;color:var(--muted);margin-bottom:18px;">Todas as visitas com loja, data, promotor, status.</p>
           <button onclick="exportarVisitas()" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--text);">⬇️ Excel</button>
@@ -1202,6 +1209,7 @@ const EXEMPLO = [
 
 /* ─── ESTADO ─── */
 let VISITAS = [];
+let PRECOS_REMOVIDOS = {}; // reservado; a exclusão de preço edita o doc da visita diretamente
 let VISITAS_PAGINA = 1;
 let VISITAS_FILTRO_ASSINATURA = null;
 let USUARIO_EMAIL = "";
@@ -1919,9 +1927,39 @@ window.criarCategoria = async function() {
   renderCatalogo();
 };
 
+// Popula o dropdown de lojas conforme a rede escolhida (item: filtrar por rede e opcionalmente loja)
+window.onChangePrecosRede = function() {
+  const rede = document.getElementById("f-precos-rede")?.value || "";
+  const selLoja = document.getElementById("f-precos-loja");
+  if (selLoja) {
+    const lojas = LOJAS_DB.filter(l => !rede || (l.canal||"")===rede)
+      .map(l => l.nome).filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    selLoja.innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join("");
+  }
+  renderPrecos();
+};
+
+function popularFiltroRedeLojaPrecos() {
+  const selRede = document.getElementById("f-precos-rede");
+  if (selRede && selRede.options.length <= 1) {
+    const redes = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    selRede.innerHTML = `<option value="">Todas as redes</option>` + redes.map(r=>`<option value="${r.replace(/"/g,'&quot;')}">${r}</option>`).join("");
+  }
+  const selLoja = document.getElementById("f-precos-loja");
+  if (selLoja && selLoja.options.length <= 1) onChangePrecosRede();
+}
+
+// Mapa nome-da-loja → canal, para casar visita (que não guarda canal) com a rede
+function canalDaVisita(v) {
+  const loja = LOJAS_DB.find(l => chaveLojaCob(l.nome,l.ende) === chaveLojaCob(v.loja,v.lojaEnde))
+            || LOJAS_DB.find(l => (l.nome||"")===(v.loja||""));
+  return loja ? (loja.canal||"") : "";
+}
+
 window.renderPrecos = async function() {
   const tbody = document.getElementById("precos-tbody");
   if (!tbody) return;
+  popularFiltroRedeLojaPrecos();
   // Carrega preços ideais + tolerâncias salvos (bug: antes só carregava na aba Painel)
   try {
     const snap = await firebase.firestore().collection("config").doc("painel").get();
@@ -1936,18 +1974,39 @@ window.renderPrecos = async function() {
   const passaPromotor = v => !promotoresSel.length || promotoresSel.includes(v.promotor);
   const pIni = document.getElementById("f-precos-ini")?.value;
   const pFim = document.getElementById("f-precos-fim")?.value;
+  const fRede = document.getElementById("f-precos-rede")?.value || "";
+  const fLoja = document.getElementById("f-precos-loja")?.value || "";
+  const soAnomalias = document.getElementById("f-precos-anomalias")?.checked;
   const noPeriodo = v => (!pIni || (v.data && v.data >= pIni)) && (!pFim || (v.data && v.data <= pFim));
+  const passaRede = v => !fRede || canalDaVisita(v)===fRede;
+  const passaLoja = v => !fLoja || (v.loja||"")===fLoja;
+  const passaFiltros = v => passaPromotor(v) && noPeriodo(v) && passaRede(v) && passaLoja(v);
+
+  // Preços removidos manualmente (item: excluir preço). Chave = idVisita||categoria
+  const removido = (idVisita, cat) => (PRECOS_REMOVIDOS[idVisita+"||"+cat] === true);
+
   const mediaCat = {};
   VISITAS.forEach(v => {
-    if (!passaPromotor(v)) return;
-    if (!noPeriodo(v)) return;
+    if (!passaFiltros(v)) return;
     Object.entries(v.precos||{}).forEach(([cat,dados]) => {
       if (!dados.presente||!dados.preco) return;
+      if (removido(v.id, cat)) return; // preço excluído sai da média
       const val=parseFloat(dados.preco); if(isNaN(val)||val<=0) return;
       if (!mediaCat[cat]) mediaCat[cat]={soma:0,count:0};
       mediaCat[cat].soma+=val; mediaCat[cat].count+=1;
     });
   });
+
+  // Define se um registro é anomalia: divergência > 100% vs ideal E/OU vs média da categoria
+  function ehAnomalia(cat, val) {
+    const ideal = PRECOS_IDEAIS[cat] || null;
+    const med = mediaCat[cat] ? (mediaCat[cat].soma/mediaCat[cat].count) : null;
+    let anom = false;
+    if (ideal && ideal>0) { if (Math.abs((val-ideal)/ideal) > 1) anom = true; }
+    if (med && med>0)     { if (Math.abs((val-med)/med) > 1) anom = true; }
+    return anom;
+  }
+
   let html="";
   categoriasAtivas().forEach(cat => {
     const ideal=PRECOS_IDEAIS[cat]||null;
@@ -1987,16 +2046,48 @@ window.renderPrecos = async function() {
   const hist=document.getElementById("precos-historico-container");
   if (hist) {
     const todos=[];
-    VISITAS.forEach(v=>{ if(!passaPromotor(v)) return; if(!noPeriodo(v)) return; Object.entries(v.precos||{}).forEach(([cat,d])=>{ if(d.presente&&d.preco) todos.push({loja:v.loja,lojaEnde:v.lojaEnde||"",data:v.data,cat,preco:d.preco,just:d.justificativa||""}); }); });
+    VISITAS.forEach(v=>{
+      if(!passaFiltros(v)) return;
+      Object.entries(v.precos||{}).forEach(([cat,d])=>{
+        if(!(d.presente&&d.preco)) return;
+        if(removido(v.id,cat)) return; // preço excluído não aparece no histórico
+        const val=parseFloat(d.preco);
+        const anom = ehAnomalia(cat, val);
+        if (soAnomalias && !anom) return;
+        todos.push({idVisita:v.id,loja:v.loja,lojaEnde:v.lojaEnde||"",data:v.data,cat,preco:d.preco,just:d.justificativa||"",anom});
+      });
+    });
     todos.sort((a,b)=>b.data>a.data?1:-1);
-    if(!todos.length){hist.innerHTML='<p style="color:var(--muted);font-size:13px;">Nenhum registro ainda.</p>';return;}
-    hist.innerHTML=`<div class="table-shell"><table><thead><tr><th>Data</th><th>Loja</th><th>Categoria</th><th>Preço (R$)</th><th>Justificativa</th></tr></thead><tbody>
-      ${todos.map(r=>`<tr>
+    const podeExcluir = podeApagarVisitas();
+    if(!todos.length){hist.innerHTML=`<p style="color:var(--muted);font-size:13px;">${soAnomalias?"Nenhuma anomalia no filtro atual.":"Nenhum registro ainda."}</p>`;return;}
+    hist.innerHTML=`<div class="table-shell"><table><thead><tr><th>Data</th><th>Loja</th><th>Categoria</th><th>Preço (R$)</th><th>Justificativa</th>${podeExcluir?"<th></th>":""}</tr></thead><tbody>
+      ${todos.map(r=>`<tr${r.anom?' style="background:rgba(220,53,69,.06);"':''}>
         <td style="font-feature-settings:'tnum'">${r.data?new Date(r.data+"T12:00:00").toLocaleDateString("pt-BR"):"—"}</td>
-        <td>${r.loja}${r.lojaEnde?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.lojaEnde}</div>`:""}</td><td>${r.cat}</td>
-        <td style="font-weight:700">R$ ${parseFloat(r.preco).toFixed(2)}</td>
+        <td>${r.loja||"—"}${r.lojaEnde?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.lojaEnde}</div>`:""}</td><td>${r.cat}</td>
+        <td style="font-weight:700">${r.anom?'⚠️ ':''}R$ ${parseFloat(r.preco).toFixed(2)}</td>
         <td style="color:var(--muted)">${r.just||"—"}</td>
+        ${podeExcluir?`<td><button onclick="excluirPreco('${r.idVisita}','${r.cat.replace(/'/g,"\\'")}','${(r.loja||"").replace(/'/g,"\\'")}')" title="Excluir este preço da análise" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button></td>`:""}
       </tr>`).join("")}</tbody></table></div>`;
+  }
+};
+
+// Exclui um preço específico de uma visita (item: preço errado do promotor).
+// NÃO descadastra a visita — só remove a categoria do objeto precos daquele documento.
+window.excluirPreco = async function(idVisita, cat, loja) {
+  if (!podeApagarVisitas()) { alert("Apenas o administrador pode excluir preços."); return; }
+  if (!confirm(`Excluir o preço de "${cat}" registrado em "${loja}"?\n\nA visita continua cadastrada; apenas este preço sai da análise de preço médio.`)) return;
+  const v = VISITAS.find(x => x.id === idVisita);
+  if (!v || !v.precos || !v.precos[cat]) { alert("Registro não encontrado (pode já ter sido removido). Recarregue."); return; }
+  try {
+    // Remove a categoria do mapa de preços e regrava o documento da visita
+    const novoPrecos = Object.assign({}, v.precos);
+    delete novoPrecos[cat];
+    await firebase.firestore().collection("visitas").doc(idVisita).update({ precos: novoPrecos });
+    v.precos = novoPrecos; // atualiza local sem recarregar tudo
+    renderPrecos();
+  } catch(e) {
+    console.error(e);
+    alert("Não foi possível excluir o preço (conexão ou permissão). Nada foi alterado.");
   }
 };
 
@@ -3232,21 +3323,6 @@ function baixarWb(wb, nome) {
   XLSX.writeFile(wb, nome + ".xlsx");
 }
 
-window.exportarLojas = function() {
-  if (!LOJAS_DB.length) { alert("Nenhuma loja na base para exportar."); return; }
-  const f = relFiltro();
-  let lojas = LOJAS_DB;
-  if (f.prom) lojas = lojas.filter(l => (l.promotores||[]).includes(f.prom));
-  const dados = lojas.map(l => ({
-    Loja: l.nome || "",
-    "Endereço": l.ende || "",
-    "Frequência de Visita": l.freqAtr || l.freq || "",
-    "Promotor Vinculado": (l.promotores||[]).length ? l.promotores.join(", ") : "Sem promotor alocado"
-  })).sort((a,b) => (a.Loja||"").localeCompare(b.Loja||"", "pt-BR"));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), "Lojas");
-  baixarWb(wb, "Relatorio_Lojas" + (f.prom ? "_" + f.prom.replace(/[^a-zA-Z0-9]/g,"") : ""));
-};
 window.exportarVisitas = function() {
   const dados = dadosVisitas();
   if (!dados.length) { alert("Nenhuma visita no filtro selecionado."); return; }
