@@ -1123,13 +1123,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Carrega config de telas e preços ideais do Firestore
   // (carregarConfigs não é async — as configs chegam depois via onSnapshot, não aqui)
   carregarConfigs();
+
+  // Tenta reenviar visitas que ficaram presas no celular (falha de internet no envio).
+  // Fica ANTES do await abaixo de propósito: o get() do catálogo não tem timeout e,
+  // com sinal ruim, pode ficar pendurado — e aí o reenvio nunca era alcançado nesta
+  // abertura do app, deixando a visita presa no celular por dias.
+  reenviarPendentes();
+
   // Carrega modificações do catálogo (categorias/SKUs ativados no dash)
   await carregarCatalogoConfig();
 
   atualizarProgress("screen-0");
-
-  // Tenta reenviar visitas que ficaram presas no celular (falha de internet no envio)
-  reenviarPendentes();
 });
 
 // Id único gerado no aparelho: gravar duas vezes com o MESMO id reescreve o mesmo
@@ -1151,10 +1155,13 @@ function persistirPendentes(fila) {
   try { localStorage.setItem("visitas_pendentes", JSON.stringify(fila)); } catch(e) {}
 }
 
-// Reenvia visitas guardadas no localStorage quando o app abre com internet.
-// Uma visita fica "presa" quando o salvamento no Firestore falha (ex: sinal caiu no envio).
+// Reenvia visitas guardadas no localStorage. Uma visita fica "presa" quando o
+// salvamento no Firestore falha (ex: sinal caiu no envio).
+// Roda em 3 momentos: abertura do app, quando a internet volta e quando o app volta
+// pra frente — o app fica aberto o dia todo, então só a abertura não bastava.
+let _reenvioEmCurso = false; // impede duas rodadas simultâneas sobre a mesma fila
 async function reenviarPendentes() {
-  if (!FB_OK) return;
+  if (!FB_OK || _reenvioEmCurso) return;
   let arr;
   try { arr = JSON.parse(localStorage.getItem("visitas_pendentes") || "[]"); }
   catch(e) { return; }
@@ -1171,25 +1178,44 @@ async function reenviarPendentes() {
   }).filter(item => item.payload);
   persistirPendentes(fila);
 
-  while (fila.length) {
-    const item = fila[0];
-    try {
-      await salvarComTimeout(item.id, item.payload, 15000);
-      enviadas++;
-      // Remove do localStorage A CADA sucesso (não só no fim do loop):
-      // fechar o app no meio do reenvio não repete visita na próxima abertura.
-      fila.shift();
-      persistirPendentes(fila);
-    } catch(e) {
-      console.warn("Falha ao reenviar visita pendente:", e);
-      break; // sinal ruim: para o loop e tenta o resto na próxima abertura
+  _reenvioEmCurso = true;
+  try {
+    let i = 0;
+    while (i < fila.length) {
+      const item = fila[i];
+      try {
+        await salvarComTimeout(item.id, item.payload, 15000);
+        enviadas++;
+        // Remove do localStorage A CADA sucesso (não só no fim do loop):
+        // fechar o app no meio do reenvio não repete visita na próxima abertura.
+        fila.splice(i, 1);
+        persistirPendentes(fila);
+      } catch(e) {
+        console.warn("Falha ao reenviar visita pendente:", e);
+        // Antes havia um break aqui: um item que falhasse sempre (ex: payload inválido,
+        // não falta de rede) travava a fila inteira para sempre e as visitas atrás dele
+        // nunca subiam. Agora conta a tentativa, mantém na fila e segue para a próxima.
+        item.tentativas = (item.tentativas || 0) + 1;
+        persistirPendentes(fila);
+        // Sem rede não faz sentido insistir nas outras: cada tentativa gasta os 15s do
+        // timeout. Para aqui e tenta tudo de novo no próximo gatilho de reenvio.
+        if (!navigator.onLine) break;
+        i++;
+      }
     }
+  } finally {
+    _reenvioEmCurso = false;
   }
 
   if (enviadas > 0) {
     toast(`✓ ${enviadas} visita(s) que estava(m) pendente(s) foram enviadas agora.`, "ok");
   }
 }
+
+// Gatilhos extras do reenvio. Antes só existia a abertura do app: se o promotor
+// deixasse o app aberto o dia todo, a visita presa não subia nem quando o sinal voltava.
+window.addEventListener("online", () => reenviarPendentes());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reenviarPendentes(); });
 
 function carregarConfigs() {
   if (!FB_OK) return;
