@@ -2032,6 +2032,11 @@ function reset() {
   try { document.getElementById("prod-select-field").style.display="none"; } catch(e){}
   try { renderProdutos(); } catch(e){}
   try { document.getElementById("fora-check").style.background="var(--card)"; document.getElementById("fora-check").textContent=""; document.getElementById("loja-custom").style.display="none"; document.getElementById("loja-select-wrap").style.display="block"; } catch(e){}
+  // Restaura a tela de envio. Sem isto, mostrarBotaoZap() escondia o botão "Salvar
+  // registro" de forma permanente: da 2ª visita em diante (via "Próxima loja") o
+  // promotor só via o botão do WhatsApp, mandava o resumo e seguia — enviar() nunca
+  // rodava e a visita não ia nem para o Firestore nem para a fila do localStorage.
+  try { document.getElementById("btn-enviar").style.display=""; document.getElementById("btn-zap-wrap").style.display="none"; } catch(e){}
   goToScreen("screen-0");
 }
 
