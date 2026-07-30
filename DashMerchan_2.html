@@ -1335,6 +1335,22 @@ function calcStats() {
   badge.classList.toggle("show", critical > 0);
 }
 
+/* ─── FOTOS: MINIATURA VIA CLOUDINARY ─── */
+// O app salva a URL da foto ORIGINAL da câmera (~3024px). Exibir isso direto num quadro
+// de 40x30 fazia o dash baixar 63 MB em 233 requisições a cada abertura — era a causa da
+// lentidão. Aqui pedimos ao Cloudinary a versão já redimensionada no servidor dele, que
+// vem em poucos KB. Vale para as fotos que já existem: nada precisa ser reenviado.
+// A ampliação (openLb) NÃO passa por aqui — continua abrindo a foto em tamanho cheio.
+function thumbCld(url, w, h, modo) {
+  if (!url || typeof url !== "string") return url;
+  const marca = "/image/upload/";
+  const i = url.indexOf(marca);
+  if (i < 0) return url;                              // não é URL do Cloudinary: intacta
+  const corte = i + marca.length;
+  if (url.slice(corte).startsWith("w_")) return url;  // já tem transformação: não mexe
+  return url.slice(0, corte) + `w_${w},h_${h},c_${modo||"fill"},q_auto,f_auto/` + url.slice(corte);
+}
+
 /* ─── TABELA VISITAS ─── */
 window.renderTabela = () => {
   const busca  = (document.getElementById("f-busca").value||"").toLowerCase();
@@ -1399,8 +1415,10 @@ window.renderTabela = () => {
 
     const urlA = (v.fotosAntes && v.fotosAntes.length) ? v.fotosAntes[0] : v.fotoAntesURL;
     const urlD = (v.fotosDepois && v.fotosDepois.length) ? v.fotosDepois[0] : v.fotoDepoisURL;
-    const fA = urlA ? `<img title="Foto ANTES" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${urlA}"  onclick="openLb('${urlA}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
-    const fD = urlD ? `<img title="Foto DEPOIS" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${urlD}" onclick="openLb('${urlD}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+    // src = miniatura (80x60, o dobro do tamanho exibido para ficar nítida em tela retina);
+    // openLb continua com a URL original, para a ampliação não perder qualidade.
+    const fA = urlA ? `<img title="Foto ANTES" loading="lazy" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${thumbCld(urlA,80,60)}"  onclick="openLb('${urlA}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
+    const fD = urlD ? `<img title="Foto DEPOIS" loading="lazy" style="width:40px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;border:1px solid var(--border);" src="${thumbCld(urlD,80,60)}" onclick="openLb('${urlD}')">` : `<span style="font-size:10px;color:var(--muted)">—</span>`;
 
     // life bar
     const maxDias = 365;
@@ -1710,7 +1728,7 @@ window.renderMpdv = function() {
     if (fotos.length > 0) {
       html += `<div style="display:grid;grid-template-columns:repeat(${Math.min(fotos.length,3)},1fr);gap:4px;padding:8px;">`;
       fotos.forEach(url => {
-        html += `<div style="aspect-ratio:1;border-radius:6px;overflow:hidden;cursor:pointer;" onclick="openLb('${url}')"><img src="${url}" style="width:100%;height:100%;object-fit:cover;"></div>`;
+        html += `<div style="aspect-ratio:1;border-radius:6px;overflow:hidden;cursor:pointer;" onclick="openLb('${url}')"><img loading="lazy" src="${thumbCld(url,300,300)}" style="width:100%;height:100%;object-fit:cover;"></div>`;
       });
       html += `</div>`;
     } else {
@@ -2230,7 +2248,9 @@ window.openModal = (id) => {
     html += `<div class="modal-section"><div class="modal-section-label">Fotos</div>`;
     function grupoFotos(titulo, cor, urls) {
       if (!urls.length) return "";
-      const imgs = urls.map(u=>`<div class="foto-modal"><img src="${u}" onclick="openLb('${u}')"></div>`).join("");
+      // Miniatura de 400x300: a .foto-modal tem 120px de altura com object-fit:cover.
+      // O clique (openLb) segue com a URL original, em tamanho cheio.
+      const imgs = urls.map(u=>`<div class="foto-modal"><img loading="lazy" src="${thumbCld(u,400,300)}" onclick="openLb('${u}')"></div>`).join("");
       return `<div style="margin-bottom:14px;">
         <div style="font-size:12px;font-weight:700;color:${cor};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">${titulo} <span style="color:var(--muted);font-weight:400;">(${urls.length})</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">${imgs}</div>
