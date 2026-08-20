@@ -739,32 +739,24 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
 
       <div id="lojas-sem-promotor" style="display:none;margin-bottom:16px;"></div>
 
-      <!-- Seletor de promotor + busca -->
+      <!-- Busca. O seletor de promotor, as marcações por loja e o "Salvar alterações"
+           saíram daqui: a alocação de promotor passou a ser feita na tela de Cobertura de
+           Promotoria, onde as três frequências (ideal, alocada e realizada) ficam à vista.
+           Esta aba trata só de dado estrutural da loja. -->
       <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;">
           <div style="flex:1;min-width:200px;">
-            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor</label>
-            <select id="cadastro-promotor" onchange="onChangeCadastroPromotor()" class="filter-select" style="width:100%;">
-              <option value="">Selecione um promotor…</option>
-              <option value="__SEM__">⚠️ Sem promotor alocado</option>
-            </select>
-          </div>
-          <div style="flex:2;min-width:200px;">
             <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Buscar loja</label>
             <input type="text" id="cadastro-busca" placeholder="Nome ou endereço…" oninput="renderCadastroLojas()"
               style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 12px;outline:none;font-family:var(--font);">
           </div>
           <div id="cadastro-contador" style="font-size:12px;color:var(--muted);padding-bottom:10px;white-space:nowrap;"></div>
         </div>
-        <div id="cadastro-acoes" style="display:none;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;">
-          <button onclick="selecionarTodasLojas(true)" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);color:var(--text);">✓ Selecionar todas</button>
-          <button onclick="selecionarTodasLojas(false)" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);color:var(--text);">✗ Limpar seleção</button>
-          <button id="btn-salvar-cadastro" onclick="salvarCadastroLojas()" style="margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">💾 Salvar alterações</button>
-        </div>
+        <p style="font-size:11px;color:var(--muted);margin:12px 0 0;">Para atribuir ou retirar promotor de uma loja, use a tela <strong>Cobertura de Promotoria</strong>.</p>
       </div>
 
       <div id="cadastro-lista-container">
-        <div class="empty-state"><div class="empty-icon">🏬</div>Selecione um promotor para atribuir lojas.<br>Se ainda não importou a base, clique em "Importar Excel".</div>
+        <div class="empty-state"><div class="empty-icon">🏬</div>Nenhuma loja carregada.<br>Se ainda não importou a base, clique em "Importar Excel".</div>
       </div>
     </div>
 
@@ -852,7 +844,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           <div class="stat-val c-accent" id="cob-nec">—</div>
           <div class="stat-sub">todas as lojas do filtro</div>
         </div>
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaVisitasAtreladas()">
           <div class="stat-top"><span class="stat-label">Visitas atreladas</span><span class="stat-icon">🔗</span></div>
           <div class="stat-val c-accent" id="cob-atr">—</div>
           <div class="stat-sub">programadas pelo time</div>
@@ -862,7 +854,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           <div class="stat-val c-yellow" id="cob-max-perc">—</div>
           <div class="stat-sub" id="cob-max-sub">atreladas ÷ necessárias</div>
         </div>
-        <div class="stat">
+        <div class="stat" style="cursor:pointer;" onclick="abrirListaVisitasRealizadas()">
           <div class="stat-top"><span class="stat-label">Visitas realizadas</span><span class="stat-icon">✔️</span></div>
           <div class="stat-val c-green" id="cob-real">—</div>
           <div class="stat-sub">feitas (app + manuais)</div>
@@ -2937,9 +2929,12 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
     const chaveLoja = chaveLojaCob(l.nome, l.ende);
     // Sob "Todos", uma loja pode ter vários promotores; a marcação manual usa o primeiro
     const promRef = todos ? ((l.promotores||[])[0] || "") : fProm;
-    const chaveManual = promRef + "||" + l.nome + "||" + (l.ende||"");
+    // Marcação manual DO MÊS selecionado (antes lia o registro único da loja, então uma
+    // visita marcada em outro mês aparecia como se fosse deste)
+    const refManual = lerManualMes(promRef, l.nome, l.ende, mes);
+    const chaveManual = refManual.chave;
     const visitasApp = VISITAS.filter(v => (todos || v.promotor===fProm) && noMes(v.data) && chaveLojaCob(v.loja, v.lojaEnde)===chaveLoja);
-    const manual = VISITAS_MANUAIS[chaveManual];
+    const manual = refManual.info;
     const qtdManual = manual ? (typeof manual.qtd==="number" ? manual.qtd : (manual.feita?1:0)) : 0;
     const atrelada = visitasNecessariasMes(l.freqAtr||l.freq);
     const totalFeitas = visitasApp.length + qtdManual;
@@ -2994,19 +2989,29 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
 window.abrirListaCobertura = function(tipo) {
   const cont = document.getElementById("cob-lista-lojas");
   if (!cont) return;
-  const { fProm, fUF, fCanal } = COB_FILTRO;
+  COB_LISTA_ABERTA = { tipo:"cobertura", arg:tipo };
+  const { fProm, fUF, fRedes } = COB_FILTRO;
+  // Antes isto lia fCanal, que renderCobertura preenche SEMPRE como "" — o filtro de
+  // Rede não tinha efeito aqui e a lista abria maior que o número do card. O filtro
+  // real de redes é o array fRedes ([] = todas as redes).
+  const redes = fRedes || [];
   let lojas = LOJAS_DB.filter(l => {
     if (fUF && (l.uf||"") !== fUF) return false;
-    if (fCanal && (l.canal||"") !== fCanal) return false;
+    if (redes.length && !redes.includes(l.canal||"")) return false;
     return true;
   });
+  // "__TODOS__" é o valor da opção "Todos os promotores" do filtro — NÃO é nome de
+  // promotor. Sem este tratamento, o filtro procurava alguém chamado "__TODOS__",
+  // não achava ninguém e a lista de "Lojas com promotor" abria vazia.
+  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
   if (tipo === "com") {
-    lojas = lojas.filter(l => fProm ? (l.promotores||[]).includes(fProm) : (l.promotores||[]).length>0);
+    lojas = lojas.filter(l => promEsp ? (l.promotores||[]).includes(promEsp) : (l.promotores||[]).length>0);
   } else if (tipo === "sem") {
     lojas = lojas.filter(l => !(l.promotores||[]).length);
-  } else if (tipo === "total" && fProm) {
-    lojas = lojas.filter(l => (l.promotores||[]).includes(fProm) || !(l.promotores||[]).length);
   }
+  // tipo "total" NÃO filtra por promotor de propósito: o card correspondente
+  // (cob-total, em renderCobertura) conta o total geral do filtro de Estado/Rede,
+  // ignorando o promotor. Filtrar aqui fazia a lista abrir menor que o número do card.
   lojas.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
 
   const titulos = { total:"Todas as lojas", com:"Lojas com promotor", sem:"Lojas sem promotor (backlog)" };
@@ -3017,29 +3022,105 @@ window.abrirListaCobertura = function(tipo) {
       <h3 style="font-size:15px;font-weight:700;">${titulos[tipo]||"Lojas"} <span style="color:var(--muted);font-weight:400;">(${lojas.length})</span></h3>
       <button onclick="document.getElementById('cob-lista-lojas').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
     </div>
-    <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq.</th><th>${tipo==="sem"?"Alocar promotor":"Promotor"}</th><th></th></tr></thead><tbody>`;
+    <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq. ideal</th><th>Freq. alocada</th><th>Freq. realizada (mês)</th><th>Promotor(es)</th><th></th></tr></thead><tbody>`;
 
   if (!lojas.length) {
-    html += `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma loja neste grupo.</td></tr>`;
+    html += `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma loja neste grupo.</td></tr>`;
   } else {
     lojas.slice(0,500).forEach(l => {
-      const promAtual = (l.promotores||[]).join(", ") || "—";
-      const acaoCol = tipo==="sem"
-        ? `<select onchange="alocarPromotorLoja('${l.id}', this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:var(--font);cursor:pointer;">
-             <option value="">Selecionar…</option>${opcoesProm}
-           </select>`
-        : `<span style="font-weight:600;">${promAtual}</span>`;
+      const cnt = contarVisitasLoja(l, COB_FILTRO.mes); // freq. realizada no mês do filtro
+      // Antes: só o tipo "sem" permitia alocar; "com" e "total" mostravam os nomes como
+      // texto morto. Agora todos os tipos trazem um "×" por promotor (sem ambiguidade de
+      // qual será retirado quando a loja tem mais de um) e um seletor para adicionar outro.
+      const chipsProm = (l.promotores||[]).map(p => {
+        const pEsc = String(p).replace(/'/g,"\\'");
+        return `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:2px 4px 2px 8px;margin:2px 4px 2px 0;font-size:12px;font-weight:600;white-space:nowrap;">${p}<button onclick="desalocarPromotorLoja('${l.id}','${pEsc}')" title="Retirar ${p} desta loja" style="background:none;border:none;color:var(--red);font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0 2px;">×</button></span>`;
+      }).join("");
+      const acaoCol = `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;">${chipsProm}
+        <select onchange="alocarPromotorLoja('${l.id}', this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:11px;font-family:var(--font);cursor:pointer;">
+          <option value="">+ adicionar…</option>${opcoesProm}
+        </select></div>`;
       const nomeEsc = (l.nome||"").replace(/'/g,"\\'");
       html += `<tr>
         <td><strong>${l.nome}</strong>${l.ende?`<div style="font-size:11px;color:var(--muted);font-weight:400;">${l.ende}</div>`:""}</td>
         <td>${l.uf||"—"}</td>
         <td style="font-size:12px;">${l.canal||"—"}</td>
         <td style="font-size:12px;">${l.freq||"—"}</td>
+        <td>${selectFreqAtr(l, "editarFreqAtrLista")}</td>
+        <td style="font-size:12px;white-space:nowrap;">${cnt.feitas} de ${cnt.alvo} visitas neste mês${cnt.manual?`<div style="font-size:11px;color:var(--muted);">${cnt.manual} manual(is)</div>`:""}</td>
         <td>${acaoCol}</td>
         <td><button onclick="apagarLojaCobertura('${l.id}','${nomeEsc}','${tipo}')" title="Excluir loja" style="background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer;">🗑</button></td>
       </tr>`;
     });
-    if (lojas.length > 500) html += `<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--muted);">Mostrando as primeiras 500 de ${lojas.length}. Use os filtros para refinar.</td></tr>`;
+    if (lojas.length > 500) html += `<tr><td colspan="8" style="text-align:center;padding:12px;color:var(--muted);">Mostrando as primeiras 500 de ${lojas.length}. Use os filtros para refinar.</td></tr>`;
+  }
+  html += `</tbody></table></div></div>`;
+  cont.innerHTML = html;
+  cont.scrollIntoView({behavior:"smooth", block:"nearest"});
+};
+
+// Guarda qual lista está aberta em #cob-lista-lojas, para que alocar/retirar promotor
+// possa reabrir a MESMA lista já atualizada em vez de sempre voltar para o backlog.
+let COB_LISTA_ABERTA = null;
+function reabrirListaCob() {
+  const a = COB_LISTA_ABERTA;
+  if (!a) return;
+  if (a.tipo === "cobertura")      abrirListaCobertura(a.arg);
+  else if (a.tipo === "atreladas") abrirListaVisitasAtreladas();
+  else if (a.tipo === "realizadas") abrirListaVisitasRealizadas();
+}
+
+// Lista as lojas ATRELADAS (com promotor) dentro do filtro ativo de Estado/Rede/Promotor.
+// Cada promotor de cada loja tem o seu próprio botão "Retirar": se a loja tem dois
+// promotores, aparecem dois botões distintos, sem ambiguidade de qual será removido.
+window.abrirListaVisitasAtreladas = function() {
+  const cont = document.getElementById("cob-lista-lojas");
+  if (!cont) return;
+  COB_LISTA_ABERTA = { tipo:"atreladas" };
+  const { fProm, fUF, fRedes } = COB_FILTRO;
+  const redes = fRedes || [];
+  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
+
+  const lojas = LOJAS_DB.filter(l => {
+    if (fUF && (l.uf||"") !== fUF) return false;
+    if (redes.length && !redes.includes(l.canal||"")) return false;
+    if (!(l.promotores||[]).length) return false;
+    if (promEsp && !(l.promotores||[]).includes(promEsp)) return false;
+    return true;
+  }).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+
+  let totalVisitas = 0;
+  lojas.forEach(l => { totalVisitas += visitasNecessariasMes(l.freqAtr || l.freq); });
+
+  let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="font-size:15px;font-weight:700;">Visitas atreladas <span style="color:var(--muted);font-weight:400;">(${lojas.length} loja(s) · ${totalVisitas} visita(s)/mês)</span></h3>
+      <button onclick="document.getElementById('cob-lista-lojas').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq. alocada</th><th>Promotores</th></tr></thead><tbody>`;
+
+  if (!lojas.length) {
+    html += `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma loja atrelada neste filtro.</td></tr>`;
+  } else {
+    lojas.slice(0,500).forEach(l => {
+      const freqUsada = l.freqAtr || l.freq || "—";
+      const nVis = visitasNecessariasMes(l.freqAtr || l.freq);
+      const chips = (l.promotores||[]).map(p => {
+        const pEsc = String(p).replace(/'/g,"\\'");
+        return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:3px 6px 3px 9px;margin:2px 4px 2px 0;font-size:12px;font-weight:600;">
+          ${p}
+          <button onclick="desalocarPromotorLoja('${l.id}','${pEsc}')" title="Retirar ${p} desta loja" style="background:none;border:none;color:var(--red);font-size:11px;font-weight:700;cursor:pointer;padding:0 2px;">Retirar</button>
+        </span>`;
+      }).join("");
+      html += `<tr>
+        <td><strong>${l.nome}</strong>${l.ende?`<div style="font-size:11px;color:var(--muted);font-weight:400;">${l.ende}</div>`:""}</td>
+        <td>${l.uf||"—"}</td>
+        <td style="font-size:12px;">${l.canal||"—"}</td>
+        <td style="font-size:12px;">${freqUsada}${nVis?`<div style="font-size:11px;color:var(--muted);">${nVis} visita(s)/mês</div>`:""}</td>
+        <td>${chips}</td>
+      </tr>`;
+    });
+    if (lojas.length > 500) html += `<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--muted);">Mostrando as primeiras 500 de ${lojas.length}. Use os filtros para refinar.</td></tr>`;
   }
   html += `</tbody></table></div></div>`;
   cont.innerHTML = html;
@@ -3055,8 +3136,115 @@ window.alocarPromotorLoja = async function(lojaId, promotor) {
     loja.promotores = novos;
     await firebase.firestore().collection("lojas").doc(lojaId).update({ promotores: novos });
     renderCobertura();
-    abrirListaCobertura("sem"); // reabre a lista de backlog atualizada
+    // Antes reabria sempre o backlog ("sem"). Agora reabre a MESMA lista de onde a
+    // alocação foi feita, já atualizada — necessário para alocar a partir das listas
+    // de "Lojas com promotor", "Total de lojas" e "Visitas atreladas".
+    reabrirListaCob();
   } catch(e){ console.error(e); alert("Erro ao alocar: "+e.message); }
+};
+
+// Lista as visitas REALIZADAS no mês dentro do filtro ativo, juntando as do app (VISITAS)
+// com as marcadas à mão (VISITAS_MANUAIS, já respeitando o mês). Somente visualização.
+// Observação sobre o número: o card "Visitas realizadas" conta TODOS os promotores (é um
+// indicador geral). Quando há um promotor selecionado no filtro, esta lista mostra só os
+// dele — por isso o título exibe os dois números, para não parecer divergência.
+window.abrirListaVisitasRealizadas = function() {
+  const cont = document.getElementById("cob-lista-lojas");
+  if (!cont) return;
+  COB_LISTA_ABERTA = { tipo:"realizadas" };
+  const { fProm, fUF, fRedes, mes } = COB_FILTRO;
+  const redes = fRedes || [];
+  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
+  const noMes = d => !mes ? true : (!!d && d.startsWith(mes));
+
+  // Casa a visita com o cadastro para poder filtrar por UF e por rede
+  const acharLoja = (nome, ende) => LOJAS_DB.find(l => chaveLojaCob(l.nome, l.ende) === chaveLojaCob(nome, ende));
+  const passaUfRede = (uf, canal) => {
+    if (fUF && (uf||"") !== fUF) return false;
+    if (redes.length && !redes.includes(canal||"")) return false;
+    return true;
+  };
+
+  const linhas = [];
+  let totalGeral = 0; // ignora o filtro de promotor: é o número do card
+
+  VISITAS.forEach(v => {
+    if (!noMes(v.data)) return;
+    const loja = acharLoja(v.loja, v.lojaEnde);
+    if (!passaUfRede(loja?.uf, loja?.canal)) return;
+    totalGeral++;
+    if (promEsp && v.promotor !== promEsp) return;
+    linhas.push({ loja:v.loja, ende:v.lojaEnde||"", data:v.data||"", promotor:v.promotor||"—", origem:"App", qtd:1, uf:loja?.uf||"—", canal:loja?.canal||"—" });
+  });
+
+  Object.entries(VISITAS_MANUAIS).forEach(([chave, info]) => {
+    if (!info) return;
+    const qtd = typeof info.qtd==="number" ? info.qtd : (info.feita?1:0);
+    if (qtd <= 0) return;
+    if (mes && info.data && !info.data.startsWith(mes)) return;
+    if (!passaUfRede(info.uf, info.canal)) return;
+    const partes = chave.split("||");
+    const prom = partes[0] || "—";
+    totalGeral += qtd;
+    if (promEsp && prom !== promEsp) return;
+    linhas.push({ loja:partes[1]||"—", ende:partes[2]||"", data:info.data||"", promotor:prom, origem:"Manual", qtd, uf:info.uf||"—", canal:info.canal||"—" });
+  });
+
+  linhas.sort((a,b) => (b.data||"").localeCompare(a.data||""));
+  const totalLista = linhas.reduce((s,l)=>s+l.qtd, 0);
+  const sufixo = promEsp ? ` de ${totalGeral} · somente ${promEsp}` : "";
+
+  let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="font-size:15px;font-weight:700;">Visitas realizadas${mes?" · "+mes:""} <span style="color:var(--muted);font-weight:400;">(${totalLista}${sufixo})</span></h3>
+      <button onclick="document.getElementById('cob-lista-lojas').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Data</th><th>Loja</th><th>UF</th><th>Promotor</th><th>Origem</th></tr></thead><tbody>`;
+
+  if (!linhas.length) {
+    html += `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma visita realizada neste filtro.</td></tr>`;
+  } else {
+    linhas.slice(0,500).forEach(l => {
+      const dataFmt = l.data ? new Date(l.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
+      const tag = l.origem === "App"
+        ? `<span style="font-size:11px;font-weight:700;background:var(--accent-lo);color:var(--accent);padding:2px 7px;border-radius:4px;">App</span>`
+        : `<span style="font-size:11px;font-weight:700;background:rgba(245,158,11,.12);color:var(--yellow);padding:2px 7px;border-radius:4px;">Manual${l.qtd>1?" ("+l.qtd+")":""}</span>`;
+      html += `<tr>
+        <td style="white-space:nowrap;font-feature-settings:'tnum';">${dataFmt}</td>
+        <td><strong>${l.loja}</strong>${l.ende?`<div style="font-size:11px;color:var(--muted);font-weight:400;">${l.ende}</div>`:""}</td>
+        <td>${l.uf}</td>
+        <td style="font-size:12px;">${l.promotor}</td>
+        <td>${tag}</td>
+      </tr>`;
+    });
+    if (linhas.length > 500) html += `<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--muted);">Mostrando as primeiras 500 de ${linhas.length}. Use os filtros para refinar.</td></tr>`;
+  }
+  html += `</tbody></table></div></div>`;
+  cont.innerHTML = html;
+  cont.scrollIntoView({behavior:"smooth", block:"nearest"});
+};
+
+// Espelha alocarPromotorLoja, removendo o promotor do array loja.promotores.
+// Em caso de falha no Firestore, desfaz a alteração local (mesmo padrão de editarFreqAtr)
+// para a tela não mostrar uma remoção que não foi salva.
+window.desalocarPromotorLoja = async function(lojaId, nomePromotor) {
+  if (!nomePromotor) return;
+  const loja = LOJAS_DB.find(l => l.id === lojaId);
+  if (!loja) return;
+  const antes = [...(loja.promotores||[])];
+  if (!antes.includes(nomePromotor)) return;
+  if (!confirm(`Retirar "${nomePromotor}" da loja "${loja.nome}"?\n\nA loja continua cadastrada — ela só deixa de estar atrelada a este promotor.`)) return;
+  const novos = antes.filter(p => p !== nomePromotor);
+  loja.promotores = novos;
+  try {
+    await firebase.firestore().collection("lojas").doc(lojaId).update({ promotores: novos });
+    renderCobertura();
+    reabrirListaCob();
+  } catch(e) {
+    loja.promotores = antes; // reverte: nada foi salvo
+    console.error(e);
+    alert("Não foi possível retirar o promotor (conexão ou permissão). Nada foi alterado.");
+  }
 };
 
 window.apagarLojaCobertura = async function(lojaId, nome, tipo) {
@@ -3099,6 +3287,63 @@ window.ajustarVisitaManual = async function(idx, delta) {
     window.scrollTo(0, pageScroll);
   } catch(e){ console.error(e); alert("Erro ao salvar: "+e.message); }
 };
+
+/* ─── FREQUÊNCIA: HELPERS COMPARTILHADOS ─── */
+// opcoesFreq e o <select> de freq. alocada eram locais de renderCadastroLojas. Foram
+// promovidos para cá porque as listas de Cobertura passaram a mostrar a mesma coluna —
+// assim existe UMA definição só, em vez de markup duplicado nos dois lugares.
+const opcoesFreq = f => ["","Semanal","Quinzenal","Mensal"].map(op=>`<option value="${op}" ${((f||"")===op)?"selected":""}>${op||"— não visita"}</option>`).join("");
+
+function selectFreqAtr(loja, handler) {
+  const fn = handler || "editarFreqAtr";
+  return `<select onchange="${fn}('${loja.id}', this.value)" onclick="event.preventDefault();" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:11px;font-family:var(--font);cursor:pointer;flex-shrink:0;" title="Frequência que o promotor faz nesta loja">${opcoesFreq(loja.freqAtr||loja.freq)}</select>`;
+}
+
+// Muda a freq. alocada a partir das listas de Cobertura e reabre a lista, para a coluna
+// "Freq. realizada (mês)" recalcular o alvo. editarFreqAtr sozinho não re-renderiza nada.
+window.editarFreqAtrLista = async function(lojaId, novaFreq) {
+  await editarFreqAtr(lojaId, novaFreq);
+  renderCobertura();
+  reabrirListaCob();
+};
+
+// Conta as visitas de UMA loja no mês: as do app + as marcadas à mão, de QUALQUER promotor.
+// Extraída da lógica de renderVisitasPorPromotor para funcionar em qualquer lista, e não
+// só quando há um promotor selecionado no filtro.
+function contarVisitasLoja(loja, mes) {
+  const dentro = d => !mes ? true : (!!d && d.startsWith(mes));
+  const chave = chaveLojaCob(loja.nome, loja.ende);
+  let app = 0;
+  VISITAS.forEach(v => { if (dentro(v.data) && chaveLojaCob(v.loja, v.lojaEnde) === chave) app++; });
+  let manual = 0;
+  Object.entries(VISITAS_MANUAIS).forEach(([k, info]) => {
+    if (!info) return;
+    const qtd = typeof info.qtd === "number" ? info.qtd : (info.feita?1:0);
+    if (qtd <= 0) return;
+    if (mes && info.data && !info.data.startsWith(mes)) return;
+    const p = k.split("||");
+    if (chaveLojaCob(p[1]||"", p[2]||"") !== chave) return;
+    manual += qtd;
+  });
+  return { app, manual, feitas: app + manual, alvo: visitasNecessariasMes(loja.freqAtr || loja.freq) };
+}
+
+// Lê a marcação manual de uma loja NO MÊS de referência.
+// A chave passou a incluir o mês (prom||nome||ende||AAAA-MM) porque antes havia UM único
+// registro por promotor+loja: marcar uma visita em agosto sobrescrevia a contagem de julho.
+// Registros no formato antigo (3 partes) continuam valendo — são lidos quando a data
+// guardada cai no mês pedido, e editados no próprio lugar. Assim nada é apagado nem
+// contado duas vezes: para um mesmo mês existe o registro novo OU o antigo, nunca os dois.
+function lerManualMes(prom, nome, ende, mes) {
+  const base = prom + "||" + nome + "||" + (ende||"");
+  const kMes = mes ? (base + "||" + mes) : base;
+  if (VISITAS_MANUAIS[kMes]) return { chave:kMes, info:VISITAS_MANUAIS[kMes] };
+  const legado = VISITAS_MANUAIS[base];
+  if (legado && (!mes || (legado.data && legado.data.startsWith(mes)))) {
+    return { chave:base, info:legado };
+  }
+  return { chave:kMes, info:null };
+}
 
 // Conta visitas marcadas manualmente (agora soma a quantidade por loja)
 function contarVisitasManuais(fProm, fUF, fCanal, mes) {
@@ -3574,8 +3819,8 @@ window.showPage = (id, el) => {
    LOJAS & PROMOTORES (Firestore)
 ═══════════════════════════════════════ */
 let LOJAS_DB = [];
-let cadastroSelecao = {};
-let cadastroSelecaoPromotor = null;       // [{id, nome, ende, cep, freq, promotores:[]}]
+// cadastroSelecao / cadastroSelecaoPromotor removidos: existiam só para a marcação em
+// massa de lojas por promotor na aba Cadastro, que saiu para a tela de Cobertura.
 let PROMOTORES_DB = [];  // [{id, nome, ativo}]
 
 async function carregarLojasPromotores() {
@@ -3920,128 +4165,49 @@ window.importarExcel = function(input) {
 /* ─── RENDER CADASTRO ─── */
 async function renderCadastro() {
   await carregarLojasPromotores();
-  // Popula seletor de promotor
-  const sel = document.getElementById("cadastro-promotor");
-  const atual = sel.value;
-  sel.innerHTML = `<option value="">Selecione um promotor…</option>` +
-    `<option value="__SEM__">⚠️ Sem promotor alocado</option>` +
-    PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("");
-  if (atual) sel.value = atual;
   renderCadastroLojas();
 }
 
-window.onChangeCadastroPromotor = function() {
-  // Ao trocar de promotor/modo, reseta a seleção local para recarregar do estado atual
-  cadastroSelecaoPromotor = null;
-  renderCadastroLojas();
-};
-
+// Lista de lojas do Cadastro: apenas DADO ESTRUTURAL (nome, endereço, UF, canal e
+// frequência ideal) + excluir. A marcação por promotor, o "Selecionar todas" e o
+// "Salvar alterações" saíram daqui — alocar promotor passou a ser feito na tela de
+// Cobertura de Promotoria, onde as três frequências ficam visíveis lado a lado.
 window.renderCadastroLojas = function() {
   atualizarBannerSemPromotor();
-  const promotor = document.getElementById("cadastro-promotor").value;
-  const busca = (document.getElementById("cadastro-busca").value||"").toLowerCase();
+  const busca = (document.getElementById("cadastro-busca")?.value||"").toLowerCase();
   const cont = document.getElementById("cadastro-lista-container");
   const contador = document.getElementById("cadastro-contador");
-  const acoes = document.getElementById("cadastro-acoes");
-  const modoSem = (promotor === "__SEM__");
+  if (!cont) return;
 
-  if (!promotor) {
-    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">🏬</div>Selecione um promotor para atribuir lojas.<br>Se ainda não importou a base, clique em "Importar Excel".</div>`;
-    contador.textContent = "";
-    if (acoes) acoes.style.display = "none";
-    return;
-  }
   if (!LOJAS_DB.length) {
     cont.innerHTML = `<div class="empty-state"><div class="empty-icon">📥</div>Nenhuma loja na base. Clique em "Importar Excel".</div>`;
-    contador.textContent = "";
-    if (acoes) acoes.style.display = "none";
+    if (contador) contador.textContent = "";
     return;
   }
-
-  // Inicializa seleção local a partir do Firestore (só quando troca de promotor/modo)
-  if (cadastroSelecaoPromotor !== promotor) {
-    cadastroSelecao = {};
-    if (!modoSem) LOJAS_DB.forEach(l => { cadastroSelecao[l.id] = (l.promotores||[]).includes(promotor); });
-    cadastroSelecaoPromotor = promotor;
-  }
-
-  // No modo "sem promotor", a seleção/salvamento em massa não se aplica
-  if (acoes) acoes.style.display = modoSem ? "none" : "flex";
 
   const passaBusca = l => !busca || l.nome.toLowerCase().includes(busca) || (l.ende||"").toLowerCase().includes(busca);
+  const filtradas = LOJAS_DB.filter(passaBusca).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
 
-  let filtradas;
-  if (modoSem) {
-    filtradas = LOJAS_DB.filter(l => !(l.promotores||[]).length && passaBusca(l));
-    filtradas.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-  } else {
-    filtradas = LOJAS_DB.filter(passaBusca);
-    // Item 4: lojas atreladas ao promotor primeiro, depois as demais (ambas em ordem alfabética)
-    filtradas.sort((a,b)=>{
-      const aA = (a.promotores||[]).includes(promotor) ? 0 : 1;
-      const bA = (b.promotores||[]).includes(promotor) ? 0 : 1;
-      if (aA !== bA) return aA - bA;
-      return a.nome.localeCompare(b.nome,"pt-BR");
-    });
-  }
-  atualizarContadorCadastro();
+  if (contador) contador.innerHTML = `<strong style="color:var(--accent)">${filtradas.length}</strong> de ${LOJAS_DB.length} loja(s)`;
 
   if (!filtradas.length) {
-    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>${modoSem?"Nenhuma loja sem promotor.":"Nenhuma loja encontrada."}</div>`;
+    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhuma loja encontrada.</div>`;
     return;
   }
 
-  const opcoesFreq = f => ["","Semanal","Quinzenal","Mensal"].map(op=>`<option value="${op}" ${((f||"")===op)?"selected":""}>${op||"— não visita"}</option>`).join("");
-
   let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(26,43,74,.06);">`;
-  let ultimoAtrelado = null;
-  filtradas.forEach(l => {
-    const marcada = cadastroSelecao[l.id];
-    const atrelada = (l.promotores||[]).includes(promotor);
-    // Item 4: separador visual entre "atreladas a este promotor" e "demais lojas"
-    if (!modoSem) {
-      const grupo = atrelada ? "atr" : "outras";
-      if (ultimoAtrelado !== null && ultimoAtrelado !== grupo && grupo === "outras") {
-        html += `<div style="padding:8px 16px;background:var(--card2);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Demais lojas</div>`;
-      }
-      if (ultimoAtrelado === null && grupo === "atr") {
-        html += `<div style="padding:8px 16px;background:var(--accent-lo);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);">Lojas de ${promotor}</div>`;
-      }
-      ultimoAtrelado = grupo;
-    }
+  filtradas.slice(0,500).forEach(l => {
     const nomeEsc = (l.nome||"").replace(/'/g,"\\'");
-    // Item 8: editar freqAtr só faz sentido para loja atrelada ao promotor
-    const freqCol = (atrelada && !modoSem)
-      ? `<select onchange="editarFreqAtr('${l.id}', this.value)" onclick="event.preventDefault();" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:11px;font-family:var(--font);cursor:pointer;flex-shrink:0;" title="Frequência que o promotor faz nesta loja">${opcoesFreq(l.freqAtr||l.freq)}</select>`
-      : `<span style="font-size:11px;color:var(--muted);flex-shrink:0;">${l.freq||"—"}</span>`;
-    // Item 9: excluir loja do banco (dupla confirmação)
-    const btnDel = `<button onclick="event.preventDefault();event.stopPropagation();excluirLojaCadastro('${l.id}','${nomeEsc}')" title="Excluir loja do banco" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;flex-shrink:0;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>`;
-
-    if (modoSem) {
-      const opcoesProm = PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("");
-      html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);">
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:14px;">${l.nome}</div>
-          <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.ende||"—"} · ${l.uf||"—"} · ${l.canal||"—"}</div>
-        </div>
-        <select onchange="alocarPromotorLoja('${l.id}', this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:var(--font);cursor:pointer;flex-shrink:0;">
-          <option value="">Alocar…</option>${opcoesProm}
-        </select>
-        ${btnDel}
-      </div>`;
-    } else {
-      html += `<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
-        <input type="checkbox" ${marcada?"checked":""} data-loja="${l.id}" onchange="marcarLojaLocal('${l.id}',this.checked)"
-          style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;">
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:14px;">${l.nome}</div>
-          <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.ende||"—"}</div>
-        </div>
-        ${freqCol}
-        ${btnDel}
-      </label>`;
-    }
+    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:14px;">${l.nome}</div>
+        <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.ende||"—"} · ${l.uf||"—"} · ${l.canal||"—"}</div>
+      </div>
+      <span style="font-size:11px;color:var(--muted);flex-shrink:0;" title="Frequência ideal do canal">${l.freq||"— não visita"}</span>
+      <button onclick="excluirLojaCadastro('${l.id}','${nomeEsc}')" title="Excluir loja do banco" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;flex-shrink:0;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>
+    </div>`;
   });
+  if (filtradas.length > 500) html += `<div style="padding:12px 16px;text-align:center;color:var(--muted);font-size:12px;">Mostrando as primeiras 500 de ${filtradas.length}. Refine a busca.</div>`;
   html += `</div>`;
   cont.innerHTML = html;
 };
@@ -4070,7 +4236,6 @@ window.excluirLojaCadastro = async function(lojaId, nome) {
   try {
     await firebase.firestore().collection("lojas").doc(lojaId).delete();
     LOJAS_DB = LOJAS_DB.filter(l => l.id !== lojaId);
-    delete cadastroSelecao[lojaId];
     renderCadastroLojas();
   } catch(e) {
     console.error(e);
@@ -4078,65 +4243,10 @@ window.excluirLojaCadastro = async function(lojaId, nome) {
   }
 };
 
-function atualizarContadorCadastro() {
-  const contador = document.getElementById("cadastro-contador");
-  if (!contador) return;
-  const n = Object.values(cadastroSelecao).filter(Boolean).length;
-  contador.innerHTML = `<strong style="color:var(--accent)">${n}</strong> lojas selecionadas`;
-}
-
-window.marcarLojaLocal = function(lojaId, marcada) {
-  cadastroSelecao[lojaId] = marcada;
-  atualizarContadorCadastro();
-};
-
-window.selecionarTodasLojas = function(marcar) {
-  const busca = (document.getElementById("cadastro-busca").value||"").toLowerCase();
-  // Aplica só às lojas visíveis (respeitando a busca)
-  LOJAS_DB.forEach(l => {
-    const visivel = !busca || l.nome.toLowerCase().includes(busca) || (l.ende||"").toLowerCase().includes(busca);
-    if (visivel) cadastroSelecao[l.id] = marcar;
-  });
-  renderCadastroLojas();
-};
-
-window.salvarCadastroLojas = async function() {
-  const promotor = document.getElementById("cadastro-promotor").value;
-  if (!promotor) return;
-  const btn = document.getElementById("btn-salvar-cadastro");
-  btn.disabled = true; btn.textContent = "Salvando…";
-  try {
-    const db = firebase.firestore();
-    // Batch em blocos de 400: o Firestore limita a 500 operações por batch.
-    // Com "selecionar todas" numa base de ~1.800 lojas, um batch único falhava inteiro.
-    let batch = db.batch();
-    let noBatch = 0, mudancas = 0;
-    for (const l of LOJAS_DB) {
-      const tinha = (l.promotores||[]).includes(promotor);
-      const querendo = !!cadastroSelecao[l.id];
-      if (tinha !== querendo) {
-        let promotores = l.promotores || [];
-        if (querendo && !promotores.includes(promotor)) promotores.push(promotor);
-        if (!querendo) promotores = promotores.filter(p=>p!==promotor);
-        l.promotores = promotores;
-        batch.update(db.collection("lojas").doc(l.id), {promotores});
-        mudancas++; noBatch++;
-        if (noBatch >= 400) {
-          await batch.commit();
-          batch = db.batch(); noBatch = 0;
-          btn.textContent = `Salvando… (${mudancas})`;
-        }
-      }
-    }
-    if (noBatch > 0) await batch.commit();
-    btn.disabled = false; btn.textContent = "💾 Salvar alterações";
-    alert(`✓ Salvo! ${mudancas} loja(s) atualizada(s) para ${promotor}.`);
-  } catch(e) {
-    console.error(e);
-    btn.disabled = false; btn.textContent = "💾 Salvar alterações";
-    alert("Erro ao salvar: "+e.message);
-  }
-};
+// Removidos com a saída da alocação em massa do Cadastro: atualizarContadorCadastro,
+// marcarLojaLocal, selecionarTodasLojas e salvarCadastroLojas (com o batch de 400).
+// Alocar e retirar promotor agora é feito loja a loja na tela de Cobertura de Promotoria,
+// por alocarPromotorLoja / desalocarPromotorLoja.
 
 /* ─── PROMOTORES ─── */
 async function renderPromotores() {
