@@ -1443,7 +1443,7 @@ window.renderTabela = () => {
       <td><span class="badge ${badgeCls}">${statusTxt}</span></td>
       <td><div style="display:flex;gap:5px;align-items:center">${fA}${fD}</div></td>
       <td><button onclick="openModal('${v.id}')" style="background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;">Ver</button></td>
-      <td>${podeApagarVisitas() ? `<button onclick="confirmarExclusao('${v.id}', '${(v.loja||"").replace(/'/g, "")}' )" title="Excluir visita" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px 6px;transition:color .15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>` : ""}</td>
+      <td><button onclick="abrirMenuVisita(event,'${v.id}','${(v.loja||"").replace(/'/g, "")}')" title="Ações desta visita" style="background:none;border:none;color:var(--muted);font-size:18px;font-weight:700;cursor:pointer;padding:2px 9px;line-height:1;border-radius:6px;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'">⋯</button></td>
     </tr>`;
   });
 
@@ -4557,6 +4557,239 @@ function initAuth() {
 /* ─── EXCLUSÃO ─── */
 let idParaExcluir = null;
 
+/* ─── MENU "⋯" E EDIÇÃO DE VISITA ─── */
+// O "⋯" substituiu a lixeira. Editar é liberado para qualquer usuário logado; Excluir
+// continua restrito ao administrador (podeApagarVisitas) e mantém o pop-up de confirmação.
+window.abrirMenuVisita = function(ev, id, loja) {
+  ev.stopPropagation();
+  const menu = document.getElementById("visita-menu");
+  if (!menu) return;
+  const item = "display:block;width:100%;text-align:left;background:none;border:none;border-radius:6px;padding:9px 12px;font-size:13px;font-family:var(--font);cursor:pointer;color:var(--text);";
+  let html = `<button onclick="fecharMenuVisita();abrirEditarVisita('${id}')" style="${item}" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'">✏️ Editar visita</button>`;
+  if (podeApagarVisitas()) {
+    html += `<button onclick="fecharMenuVisita();confirmarExclusao('${id}','${loja}')" style="${item}color:var(--red);" onmouseover="this.style.background='rgba(229,57,53,.08)'" onmouseout="this.style.background='none'">🗑 Excluir visita</button>`;
+  }
+  menu.innerHTML = html;
+  menu.style.display = "block";
+  // Posiciona pelas coordenadas de tela do botão (position:fixed), para o menu não ser
+  // recortado pela rolagem horizontal da tabela.
+  const btn = (ev.target && ev.target.closest) ? ev.target.closest("button") : null;
+  const r = btn ? btn.getBoundingClientRect() : { right: 200, bottom: 200, top: 180 };
+  const larg = menu.offsetWidth || 180, alt = menu.offsetHeight || 90;
+  menu.style.left = Math.max(8, Math.min(r.right - larg, window.innerWidth - larg - 8)) + "px";
+  menu.style.top  = ((r.bottom + alt > window.innerHeight) ? Math.max(8, r.top - alt - 4) : r.bottom + 4) + "px";
+};
+window.fecharMenuVisita = function() {
+  const m = document.getElementById("visita-menu");
+  if (m) m.style.display = "none";
+};
+document.addEventListener("click", function(e) {
+  const m = document.getElementById("visita-menu");
+  if (m && m.style.display === "block" && !m.contains(e.target)) fecharMenuVisita();
+});
+
+let EV_VISITA = null;   // visita sendo editada (referência ao item de VISITAS)
+let EV_LOJA = null;     // loja escolhida na busca; null = mantém a atual
+let EV_MPDV = null;
+let EV_ESTOQUE = [];    // [{sku, qtd}]
+let EV_LOTES = [];      // [{sku, qtd, validade}]
+
+function isoParaHora(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const p = n => String(n).padStart(2,"0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+// Monta o ISO a partir da data + hora digitadas, em horário local (é como a tabela exibe)
+function horaParaIso(dataStr, horaStr, isoOriginal) {
+  if (!horaStr) return isoOriginal || null;
+  const d = new Date(`${dataStr}T${horaStr}`);
+  return isNaN(d) ? (isoOriginal || null) : d.toISOString();
+}
+
+// Lista de produtos agrupada por categoria. Um SKU que não está mais no catálogo é
+// mantido como opção para a edição não apagar o produto de uma visita antiga.
+function opcoesProdutos(skuSel) {
+  let h = `<option value="">— selecione o produto —</option>`;
+  let achou = false;
+  CATEGORIAS_DOBRO.forEach(cat => {
+    const itens = CATALOGO_DOBRO[cat] || [];
+    if (!itens.length) return;
+    h += `<optgroup label="${cat}">`;
+    itens.forEach(p => {
+      const sel = p.sku === skuSel;
+      if (sel) achou = true;
+      h += `<option value="${p.sku}" ${sel?"selected":""}>${p.desc}</option>`;
+    });
+    h += `</optgroup>`;
+  });
+  if (skuSel && !achou) h += `<option value="${skuSel}" selected>${skuSel} (fora do catálogo)</option>`;
+  return h;
+}
+
+const EV_INPUT = "background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;padding:7px 8px;font-family:var(--font);";
+const EV_BTN_X = "background:none;border:1px solid var(--border);color:var(--red);border-radius:7px;padding:6px 9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);flex-shrink:0;";
+
+function renderEvEstoque() {
+  const c = document.getElementById("ev-estoque");
+  if (!c) return;
+  c.innerHTML = EV_ESTOQUE.map((it, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+      <select onchange="EV_ESTOQUE[${i}].sku=this.value" style="flex:1;min-width:0;${EV_INPUT}cursor:pointer;">${opcoesProdutos(it.sku)}</select>
+      <input type="number" min="0" value="${it.qtd===""||it.qtd==null?0:it.qtd}" oninput="EV_ESTOQUE[${i}].qtd=this.value" title="Quantidade contada" style="width:92px;${EV_INPUT}">
+      <button onclick="EV_ESTOQUE.splice(${i},1);renderEvEstoque()" title="Remover item" style="${EV_BTN_X}">×</button>
+    </div>`).join("") || `<p style="font-size:12px;color:var(--muted);">Nenhum item na contagem. Use "+ item" para incluir.</p>`;
+}
+
+function renderEvLotes() {
+  const c = document.getElementById("ev-lotes");
+  if (!c) return;
+  c.innerHTML = EV_LOTES.map((it, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+      <select onchange="EV_LOTES[${i}].sku=this.value" style="flex:1;min-width:0;${EV_INPUT}cursor:pointer;">${opcoesProdutos(it.sku)}</select>
+      <input type="number" min="0" value="${it.qtd===""||it.qtd==null?"":it.qtd}" oninput="EV_LOTES[${i}].qtd=this.value" placeholder="Qtd" title="Quantidade do lote" style="width:80px;${EV_INPUT}">
+      <input type="date" value="${it.validade||""}" oninput="EV_LOTES[${i}].validade=this.value" title="Data de validade" style="width:150px;${EV_INPUT}">
+      <button onclick="EV_LOTES.splice(${i},1);renderEvLotes()" title="Remover lote" style="${EV_BTN_X}">×</button>
+    </div>`).join("") || `<p style="font-size:12px;color:var(--muted);">Nenhum lote de validade nesta visita.</p>`;
+}
+
+function renderEvMpdv() {
+  const c = document.getElementById("ev-mpdv");
+  if (!c) return;
+  const ops = [{v:true,txt:"✓ Positivou"},{v:false,txt:"✕ Não positivou"},{v:null,txt:"— Não informado"}];
+  c.innerHTML = ops.map(o => {
+    const sel = EV_MPDV === o.v;
+    return `<button onclick="EV_MPDV=${o.v===null?"null":o.v};renderEvMpdv()" style="background:${sel?"var(--accent-lo)":"var(--card2)"};border:1px solid ${sel?"var(--accent)":"var(--border)"};color:${sel?"var(--accent)":"var(--text)"};border-radius:8px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">${o.txt}</button>`;
+  }).join("");
+}
+
+window.filtrarLojasEdicao = function() {
+  const q = (document.getElementById("ev-loja-busca").value||"").toLowerCase().trim();
+  const box = document.getElementById("ev-loja-sugestoes");
+  if (!box) return;
+  if (!q) { box.innerHTML = ""; box.style.display = "none"; return; }
+  const achados = LOJAS_DB.filter(l =>
+    (l.nome||"").toLowerCase().includes(q) || (l.ende||"").toLowerCase().includes(q)
+  ).slice(0, 30);
+  box.innerHTML = achados.length
+    ? achados.map(l => `<div onclick="escolherLojaEdicao('${l.id}')" style="padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'"><strong>${l.nome}</strong>${l.ende?`<div style="font-size:11px;color:var(--muted);">${l.ende}</div>`:""}</div>`).join("")
+    : `<div style="padding:9px 10px;font-size:12px;color:var(--muted);">Nenhuma loja com esse nome na base.</div>`;
+  box.style.display = "block";
+};
+
+window.escolherLojaEdicao = function(lojaId) {
+  const l = LOJAS_DB.find(x => x.id === lojaId);
+  if (!l) return;
+  EV_LOJA = { nome: l.nome, ende: l.ende || "" };
+  document.getElementById("ev-loja-busca").value = "";
+  document.getElementById("ev-loja-sugestoes").style.display = "none";
+  document.getElementById("ev-loja-atual").innerHTML = `<strong>${l.nome}</strong>${l.ende?` — <span style="color:var(--muted);">${l.ende}</span>`:""} <span style="font-size:11px;color:var(--accent);font-weight:700;">(alterada)</span>`;
+};
+
+window.abrirEditarVisita = function(id) {
+  const v = VISITAS.find(x => x.id === id);
+  if (!v) { alert("Visita não encontrada. Clique em Atualizar e tente de novo."); return; }
+  EV_VISITA = v;
+  EV_LOJA = null;
+  EV_MPDV = (v.mpdv === true || v.mpdv === false) ? v.mpdv : null;
+  EV_ESTOQUE = (v.estoque||[]).map(e => ({ sku: e.sku||"", qtd: e.qtd==null?0:e.qtd }));
+  EV_LOTES = [];
+  // skuOrig guarda de qual produto o lote saiu: se você trocar o produto do lote, as fotos
+  // daquele produto precisam continuar na visita (fotos não são editáveis aqui).
+  (v.produtos||[]).forEach(p => (p.lotes||[]).forEach(l => EV_LOTES.push({ sku: p.sku||"", skuOrig: p.sku||"", qtd: l.qtd==null?"":l.qtd, validade: l.validade||"" })));
+
+  document.getElementById("ev-sub").textContent = `${v.promotor||"promotor não informado"} · registro de ${v.data||"—"}`;
+  document.getElementById("ev-data").value = v.data || "";
+  document.getElementById("ev-ini").value = isoParaHora(v.horaInicio);
+  document.getElementById("ev-fim").value = isoParaHora(v.horaFim);
+  document.getElementById("ev-loja-busca").value = "";
+  document.getElementById("ev-loja-sugestoes").innerHTML = "";
+  document.getElementById("ev-loja-sugestoes").style.display = "none";
+  document.getElementById("ev-loja-atual").innerHTML = `<strong>${v.loja||"—"}</strong>${v.lojaEnde?` — <span style="color:var(--muted);">${v.lojaEnde}</span>`:""}`;
+  renderEvMpdv(); renderEvEstoque(); renderEvLotes();
+  document.getElementById("editar-visita-modal").style.display = "flex";
+};
+
+window.fecharEditarVisita = function() {
+  EV_VISITA = null; EV_LOJA = null;
+  const m = document.getElementById("editar-visita-modal");
+  if (m) m.style.display = "none";
+};
+
+window.salvarEdicaoVisita = async function() {
+  if (!EV_VISITA) return;
+  const data = document.getElementById("ev-data").value || "";
+  if (!data) { alert("Informe a data da visita."); return; }
+
+  // desc/cat vêm do catálogo; se o SKU não estiver mais nele, preserva o que a visita já tinha
+  const porSku = {};
+  CATEGORIAS_DOBRO.forEach(cat => (CATALOGO_DOBRO[cat]||[]).forEach(p => { porSku[p.sku] = { desc:p.desc, cat }; }));
+  const origEst = {}; (EV_VISITA.estoque||[]).forEach(e => { if (e.sku) origEst[e.sku] = e; });
+  const origProd = {}; (EV_VISITA.produtos||[]).forEach(p => { if (p.sku) origProd[p.sku] = p; });
+  const resolver = (sku, orig) => porSku[sku] || { desc: (orig && orig.desc) || sku, cat: (orig && orig.cat) || "" };
+
+  const estoque = EV_ESTOQUE.filter(i => i.sku).map(i => {
+    const r = resolver(i.sku, origEst[i.sku]);
+    return { sku:i.sku, desc:r.desc, cat:r.cat, qtd: Number(i.qtd)||0 };
+  });
+
+  // Reagrupa os lotes por SKU e PRESERVA as fotos que já estavam em cada produto —
+  // as fotos não são editáveis aqui e não podem ser perdidas ao salvar.
+  const mapa = {};
+  const fotosAproveitadas = new Set();
+  EV_LOTES.filter(i => i.sku).forEach(i => {
+    if (!mapa[i.sku]) {
+      const r = resolver(i.sku, origProd[i.sku]);
+      mapa[i.sku] = { sku:i.sku, desc:r.desc, cat:r.cat, lotes:[], fotos:[] };
+    }
+    // Herda as fotos do produto atual E do produto de origem do lote: trocar o produto
+    // de um lote não pode fazer a foto desaparecer da visita.
+    [i.sku, i.skuOrig].forEach(s => {
+      const f = (s && origProd[s] && origProd[s].fotos) || [];
+      f.forEach(u => { if (!mapa[i.sku].fotos.includes(u)) mapa[i.sku].fotos.push(u); });
+      if (f.length) fotosAproveitadas.add(s);
+    });
+    mapa[i.sku].lotes.push({ qtd: (i.qtd==null?"":String(i.qtd)), validade: i.validade || "" });
+  });
+  const produtos = Object.values(mapa);
+  // Rede de segurança: produto original que tinha foto e não sobrou em lugar nenhum volta
+  // para a visita sem lotes, para nenhuma foto ser perdida ao salvar.
+  Object.keys(origProd).forEach(s => {
+    if (((origProd[s].fotos||[]).length) && !fotosAproveitadas.has(s)) {
+      produtos.push(Object.assign({}, origProd[s], { lotes: [] }));
+    }
+  });
+
+  const dados = {
+    data,
+    loja:     EV_LOJA ? EV_LOJA.nome : (EV_VISITA.loja||""),
+    lojaEnde: EV_LOJA ? EV_LOJA.ende : (EV_VISITA.lojaEnde||""),
+    mpdv: EV_MPDV,
+    horaInicio: horaParaIso(data, document.getElementById("ev-ini").value, EV_VISITA.horaInicio),
+    horaFim:    horaParaIso(data, document.getElementById("ev-fim").value, EV_VISITA.horaFim),
+    estoque, produtos,
+    editadoPor: USUARIO_EMAIL || "desconhecido",
+    editadoEm: new Date().toISOString()
+  };
+
+  const btn = document.getElementById("ev-btn-salvar");
+  btn.disabled = true; btn.textContent = "Salvando…";
+  const alvo = EV_VISITA;
+  try {
+    await firebase.firestore().collection("visitas").doc(alvo.id).update(dados);
+    Object.assign(alvo, dados); // reflete na memória sem recarregar a coleção inteira
+    fecharEditarVisita();
+    calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
+    alert("✓ Visita atualizada.");
+  } catch(e) {
+    console.error(e);
+    alert("Não foi possível salvar (conexão ou permissão). A visita NÃO foi alterada.");
+  } finally {
+    btn.disabled = false; btn.textContent = "💾 Salvar visita";
+  }
+};
+
 window.confirmarExclusao = function(id, loja) {
   if (!podeApagarVisitas()) {
     alert("Apenas o usuário administrador pode excluir visitas.");
@@ -4606,6 +4839,78 @@ window.executarExclusao = async function() {
   <span id="cob-pendentes-txt" style="font-size:13px;color:var(--text);"></span>
   <button onclick="descartarPendentesCobertura()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">Descartar</button>
   <button id="cob-btn-salvar" onclick="salvarPendentesCobertura()" style="margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 22px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">💾 Salvar alterações</button>
+</div>
+
+<!-- Menu "⋯" de cada visita. Fica em position:fixed fora da tabela para não ser cortado
+     pela rolagem dela. O item Excluir só é montado para o administrador. -->
+<div id="visita-menu" style="display:none;position:fixed;z-index:1100;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 6px 24px rgba(26,43,74,.18);padding:6px;min-width:180px;"></div>
+
+<!-- Editar visita -->
+<div id="editar-visita-modal" style="display:none;position:fixed;inset:0;z-index:1050;background:rgba(0,0,0,.5);align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px;">
+  <div style="background:var(--card);border-radius:14px;padding:22px;max-width:760px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.28);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <div>
+        <h3 style="font-size:16px;font-weight:700;">Editar visita</h3>
+        <p id="ev-sub" style="font-size:12px;color:var(--muted);margin-top:2px;"></p>
+      </div>
+      <button onclick="fecharEditarVisita()" style="background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;line-height:1;">×</button>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;">
+      <div style="flex:1;min-width:150px;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Data</label>
+        <input type="date" id="ev-data" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 10px;font-family:var(--font);">
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Entrada</label>
+        <input type="time" step="1" id="ev-ini" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 10px;font-family:var(--font);">
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Saída</label>
+        <input type="time" step="1" id="ev-fim" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 10px;font-family:var(--font);">
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Loja</label>
+      <div id="ev-loja-atual" style="font-size:14px;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;"></div>
+      <div style="position:relative;">
+        <input type="text" id="ev-loja-busca" placeholder="Digite para trocar a loja…" oninput="filtrarLojasEdicao()" autocomplete="off"
+          style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 10px;outline:none;font-family:var(--font);">
+        <div id="ev-loja-sugestoes" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:220px;overflow-y:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(26,43,74,.16);z-index:5;"></div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:5px;">A loja só muda se você escolher uma da lista. Digitar sem escolher não altera nada.</p>
+    </div>
+
+    <div style="margin-top:16px;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">MPdV</label>
+      <div id="ev-mpdv" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);">Contagem de estoque</label>
+        <button onclick="EV_ESTOQUE.push({sku:'',qtd:0});renderEvEstoque()" style="background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);">+ item</button>
+      </div>
+      <div id="ev-estoque"></div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);">Lotes de validade</label>
+        <button onclick="EV_LOTES.push({sku:'',qtd:'',validade:''});renderEvLotes()" style="background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);">+ lote</button>
+      </div>
+      <div id="ev-lotes"></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:6px;">É daqui que sai o "Pior validade" e o status Urgente da visita.</p>
+    </div>
+
+    <p style="font-size:11px;color:var(--muted);margin-top:16px;">As fotos da visita não são editáveis por aqui e não são afetadas ao salvar.</p>
+
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button onclick="fecharEditarVisita()" style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);">Cancelar</button>
+      <button id="ev-btn-salvar" onclick="salvarEdicaoVisita()" style="flex:2;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">💾 Salvar visita</button>
+    </div>
+  </div>
 </div>
 
 <!-- Escolha de frequência: aparece ao alocar um promotor, porque frequência passou a ser
