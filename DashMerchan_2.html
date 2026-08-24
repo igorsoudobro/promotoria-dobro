@@ -526,6 +526,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           <option value="data-asc">Mais antigas primeiro</option>
           <option value="loja">Por loja (A–Z)</option>
         </select>
+        <button onclick="extrairExcelVisitas()" title="Extrai em Excel exatamente o que está filtrado aqui, todas as páginas" style="margin-left:auto;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;">📤 Extrair Excel</button>
       </div>
 
       <div class="table-shell">
@@ -1344,15 +1345,9 @@ function thumbCld(url, w, h, modo) {
 }
 
 /* ─── TABELA VISITAS ─── */
-window.renderTabela = () => {
-  const busca  = (document.getElementById("f-busca").value||"").toLowerCase();
-  const data   = document.getElementById("f-data").value;
-  const status = document.getElementById("f-status").value;
-  const promotor = document.getElementById("f-promotor").value;
-  const sort   = document.getElementById("f-sort").value;
-
-  let vs = [...VISITAS];
-
+// Filtro/ordenação da aba Visitas, extraído de renderTabela para o "Extrair Excel" usar
+// exatamente os mesmos critérios da tela — sem duplicar a regra em dois lugares.
+function aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort) {
   if (busca) vs = vs.filter(v =>
     ((v.loja||"")+" "+(v.lojaEnde||"")).toLowerCase().includes(busca) ||
     (v.produtos||[]).some(p => p.desc?.toLowerCase().includes(busca))
@@ -1364,6 +1359,88 @@ window.renderTabela = () => {
   if (sort==="data-asc")  vs.sort((a,b)=>a.timestamp>b.timestamp?1:-1);
   else if (sort==="data-desc") vs.sort((a,b)=>a.timestamp>b.timestamp?-1:1);
   else if (sort==="loja") vs.sort((a,b)=>(a.loja||"").localeCompare(b.loja||"","pt-BR"));
+  return vs;
+}
+
+// Lê os filtros da tela e devolve as visitas já filtradas e ordenadas
+function visitasFiltradasTela() {
+  return aplicarFiltrosVisitas(
+    [...VISITAS],
+    (document.getElementById("f-busca")?.value||"").toLowerCase(),
+    document.getElementById("f-data")?.value || "",
+    document.getElementById("f-promotor")?.value || "",
+    document.getElementById("f-status")?.value || "",
+    document.getElementById("f-sort")?.value || ""
+  );
+}
+
+// Extrai o Excel do que está filtrado na aba Visitas — todas as páginas, não só a atual.
+// Três abas: uma linha por visita, uma por lote de validade e uma por item de estoque.
+window.extrairExcelVisitas = function() {
+  const vs = visitasFiltradasTela();
+  if (!vs.length) { alert("Nenhuma visita no filtro atual para extrair."); return; }
+
+  const hora = iso => { const d = iso?new Date(iso):null; return (d && !isNaN(d)) ? d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""; };
+  const rotulo = cls => cls==="red"?"Urgente":cls==="yellow"?"Atenção":"OK";
+
+  const visitas = vs.map(v => {
+    const pior = piorDias(v);
+    return {
+      Data: v.data || "",
+      Loja: v.loja || "",
+      Endereço: v.lojaEnde || "",
+      Promotor: v.promotor || "",
+      MPdV: v.mpdv===true?"Sim":v.mpdv===false?"Não":"",
+      Início: hora(v.horaInicio),
+      Fim: hora(v.horaFim),
+      "Produtos contados": new Set((v.estoque||[]).map(e=>e.sku)).size,
+      "Pior validade (dias)": pior===null?"":pior,
+      "Status validade": rotulo(colorClass(pior)),
+      "Obs. inicial": v.obsInicial || "",
+      "Obs. final": v.obsFinal || "",
+      "Qtd fotos": (v.fotosAntes?.length||0)+(v.fotosDepois?.length||0)+(v.fotosMpdv?.length||0),
+      "Editado por": v.editadoPor || "",
+      ID: v.id || ""
+    };
+  });
+
+  const validade = [];
+  vs.forEach(v => (v.produtos||[]).forEach(p => (p.lotes||[]).forEach(l => {
+    const dias = diasParaVencer(l.validade);
+    validade.push({
+      Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Promotor: v.promotor||"",
+      Categoria: p.cat||"", Produto: p.desc||"", SKU: p.sku||"",
+      Quantidade: l.qtd||"", Validade: l.validade||"",
+      "Dias para vencer": dias===null?"":dias, Status: rotulo(colorClass(dias))
+    });
+  })));
+
+  const estoque = [];
+  vs.forEach(v => (v.estoque||[]).forEach(e => {
+    estoque.push({
+      Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Promotor: v.promotor||"",
+      Categoria: e.cat||"", Produto: e.desc||"", SKU: e.sku||"", Quantidade: e.qtd==null?"":e.qtd
+    });
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(visitas), "Visitas");
+  if (validade.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(validade), "Validade");
+  if (estoque.length)  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(estoque), "Estoque");
+  const hoje = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Visitas_Dobro_${hoje}.xlsx`);
+};
+
+window.renderTabela = () => {
+  const busca  = (document.getElementById("f-busca").value||"").toLowerCase();
+  const data   = document.getElementById("f-data").value;
+  const status = document.getElementById("f-status").value;
+  const promotor = document.getElementById("f-promotor").value;
+  const sort   = document.getElementById("f-sort").value;
+
+  let vs = [...VISITAS];
+
+  vs = aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort);
 
   if (!vs.length) {
     document.getElementById("tab-container").innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhuma visita encontrada.</div>`;
@@ -4783,8 +4860,15 @@ window.salvarEdicaoVisita = async function() {
     calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
     alert("✓ Visita atualizada.");
   } catch(e) {
-    console.error(e);
-    alert("Não foi possível salvar (conexão ou permissão). A visita NÃO foi alterada.");
+    console.error("Falha ao salvar edição da visita:", e, "payload:", dados);
+    // Mostra o motivo REAL. A mensagem genérica anterior escondia a causa (regra do
+    // Firestore, campo inválido, rede) e obrigava a abrir o console para descobrir.
+    const cod = e && e.code ? e.code : "sem código";
+    let dica = "";
+    if (cod === "permission-denied") dica = "\n\nAs regras de segurança do Firestore não estão permitindo alterar a coleção \"visitas\".";
+    else if (String(e && e.message).includes("Unsupported field value")) dica = "\n\nAlgum campo foi enviado com valor inválido.";
+    else if (cod === "unavailable" || cod === "deadline-exceeded") dica = "\n\nParece falta de conexão. Tente de novo.";
+    alert(`Não foi possível salvar. A visita NÃO foi alterada.\n\nMotivo (${cod}): ${e && e.message ? e.message : e}${dica}`);
   } finally {
     btn.disabled = false; btn.textContent = "💾 Salvar visita";
   }
