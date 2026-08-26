@@ -4096,51 +4096,41 @@ window.exportarBookFotos = async function() {
       pdf.setTextColor(0,0,0);
       cursorY += 16;
 
-      // Fotos em GRADE de 3 por linha. Antes era uma foto por linha: a foto de celular
-      // é em pé, então saía com 45x60mm e sobravam ~140mm vazios na largura da página.
-      // Lado a lado cada foto fica MAIOR (célula de 59mm) e a página rende 3x mais.
-      // As fotos não são giradas — girar deixaria a gôndola de lado.
+      // TODAS as fotos da visita entram numa grade ÚNICA de 3 colunas, cada foto com o seu
+      // rótulo em cima. Antes cada grupo (Antes/Depois/MPdV) abria uma linha nova, então o
+      // caso mais comum — 1 foto de Antes e 1 de Depois — ocupava duas linhas com a metade
+      // direita da página vazia. Agora elas ficam lado a lado.
+      // As fotos não são giradas: girar deixaria a gôndola de lado, ilegível.
       const COLS = 3, GAP = 4;
       const cellW = (util - GAP*(COLS-1)) / COLS; // ~59,3mm
-      const cellH = 75;                            // teto de altura por linha
+      const cellH = 72;                            // teto de altura da foto (sobra p/ rótulo)
 
+      const todas = [];
       for (const g of grupos) {
-        const urls = g.urls || [];
-        if (!urls.length) continue;
-
-        // Carrega as fotos do grupo antes de desenhar, para saber a altura da linha
-        const imgs = [];
-        for (const url of urls) {
+        for (const url of (g.urls || [])) {
           const img = await carregarImagemBook(url);
-          if (img) { imgs.push(img); totalFotos++; }
+          if (img) { todas.push({ titulo: g.titulo, img }); totalFotos++; }
         }
-        if (!imgs.length) continue;
+      }
 
-        // Rótulo do grupo (Antes / Depois / MPdV)
-        if (cursorY + 20 > ph - margin) { pdf.addPage(); cursorY = margin; }
-        pdf.setFont("helvetica","bold"); pdf.setFontSize(10); pdf.setTextColor(44,57,127);
-        pdf.text(g.titulo, margin, cursorY+4);
-        pdf.setTextColor(0,0,0);
-        cursorY += 7;
-
-        for (let k = 0; k < imgs.length; k += COLS) {
-          const linha = imgs.slice(k, k+COLS);
-          // Cada foto cabe na célula mantendo a proporção original
-          const medidas = linha.map(im => {
-            let w = cellW, h = w * (im.h/im.w);
-            if (h > cellH) { h = cellH; w = h * (im.w/im.h); }
-            return { im, w, h };
-          });
-          const alturaLinha = Math.max(...medidas.map(m => m.h));
-          if (cursorY + alturaLinha + 4 > ph - margin) { pdf.addPage(); cursorY = margin; }
-          medidas.forEach((m, i) => {
-            const xCel = margin + i*(cellW + GAP);
-            const x = xCel + (cellW - m.w)/2; // centraliza na célula
-            pdf.addImage(m.im.dataURL, "JPEG", x, cursorY, m.w, m.h);
-          });
-          cursorY += alturaLinha + 4;
-        }
-        cursorY += 3;
+      for (let k = 0; k < todas.length; k += COLS) {
+        const linha = todas.slice(k, k+COLS);
+        // Cada foto cabe na célula mantendo a proporção original
+        const medidas = linha.map(it => {
+          let w = cellW, h = w * (it.img.h/it.img.w);
+          if (h > cellH) { h = cellH; w = h * (it.img.w/it.img.h); }
+          return { it, w, h };
+        });
+        const alturaLinha = Math.max(...medidas.map(m => m.h));
+        if (cursorY + alturaLinha + 11 > ph - margin) { pdf.addPage(); cursorY = margin; }
+        medidas.forEach((m, i) => {
+          const xCel = margin + i*(cellW + GAP);
+          pdf.setFont("helvetica","bold"); pdf.setFontSize(9); pdf.setTextColor(44,57,127);
+          pdf.text(m.it.titulo, xCel, cursorY+4);
+          pdf.setTextColor(0,0,0);
+          pdf.addImage(m.it.img.dataURL, "JPEG", xCel + (cellW - m.w)/2, cursorY+6, m.w, m.h);
+        });
+        cursorY += alturaLinha + 11;
       }
     }
 
