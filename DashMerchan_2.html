@@ -1045,12 +1045,12 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         </div>
       </div>
 
-      <!-- Book de Fotos (PDF) -->
+      <!-- Relatório Semanal de Merchandising (PDF) -->
       <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:32px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
-            <h3 style="font-size:16px;font-weight:700;">📸 Book de Fotos (PDF)</h3>
-            <p style="font-size:13px;color:var(--muted);margin-top:4px;">PDF com as fotos por visita — antes, depois e MPdV — no período, promotor e rede selecionados.</p>
+            <h3 style="font-size:16px;font-weight:700;">📸 Relatório Semanal de Merchandising (PDF)</h3>
+            <p style="font-size:13px;color:var(--muted);margin-top:4px;">Primeira página com os quadros de cobertura e de vencimentos, seguida das fotos por visita — antes, depois e MPdV — no período, promotor e rede selecionados.</p>
           </div>
           <div style="min-width:180px;">
             <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal</label>
@@ -3896,17 +3896,159 @@ window.exportarBookFotos = async function() {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit:"mm", format:"a4" });
   const pw = 210, ph = 297, margin = 12;
-  let primeira = true;
+  const util = pw - margin*2;
+  const fmtBR = s => s ? s.split("-").reverse().join("/") : "";
 
-  // Capa
-  pdf.setFillColor(44,57,127); pdf.rect(0,0,pw,45,"F");
-  pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(22);
-  pdf.text("Book de Fotos", margin, 25);
-  pdf.setFontSize(11); pdf.setFont("helvetica","normal");
-  const periodo = (f.ini||"início") + " a " + (f.fim||"fim") + (f.prom?("  ·  "+f.prom):"") + (redeFiltro?("  ·  "+redeFiltro):"");
-  pdf.text(periodo, margin, 34);
+  /* ── Números do quadro de cobertura ──
+     PROGRAMADAS NA SEMANA: soma das lojas atreladas ao promotor pela frequência ALOCADA,
+     contando 1 para Semanal, 0,5 para Quinzenal e 0,25 para Mensal — ou seja,
+     visitasNecessariasMes/4, já que o sistema define Semanal como 4 visitas/mês.
+     É a conta que corresponde a "uma visita por semana na loja semanal", e é auditável
+     loja a loja. NÃO usa divisão por dias do mês. */
+  const lojasDoRelatorio = LOJAS_DB.filter(l => {
+    const proms = l.promotores || [];
+    if (!proms.length) return false;
+    if (f.prom && !proms.includes(f.prom)) return false;
+    if (redeFiltro && (l.canal||"") !== redeFiltro) return false;
+    return true;
+  });
+  let programadas = 0;
+  lojasDoRelatorio.forEach(l => {
+    const fa = freqAlocada(l);
+    if (fa) programadas += visitasNecessariasMes(fa) / 4;
+  });
+  programadas = Math.round(programadas);
+  // Realizadas = todas as visitas do período (com ou sem foto). Visitas marcadas à mão
+  // ficam de fora de propósito: elas são gravadas no dia 15 do mês, não no dia real.
+  const realizadas = visitas.length;
+  const naoFeitas = Math.max(0, programadas - realizadas);
+  const perc = programadas > 0 ? Math.round(realizadas/programadas*100) : 0;
+
+  /* ── Vencimentos encontrados nas visitas do período ──
+     Referência é o FIM do período (ou hoje, sem filtro de data).
+     Urgente = vence em até 7 dias (inclui já vencidos). Atenção = em até 45 dias.
+     São faixas próprias deste relatório, diferentes das da aba Visitas (≤120 / 121–270). */
+  const refFim = f.fim ? new Date(f.fim+"T12:00:00") : new Date();
+  const lotes = [];
+  visitas.forEach(v => (v.produtos||[]).forEach(p => (p.lotes||[]).forEach(lt => {
+    if (!lt.validade) return;
+    const d = new Date(lt.validade+"T12:00:00");
+    if (isNaN(d)) return;
+    lotes.push({
+      loja: v.loja||"", ende: v.lojaEnde||"", desc: p.desc||p.sku||"",
+      qtd: Number(lt.qtd)||0, validade: lt.validade,
+      dias: Math.round((d - refFim)/86400000)
+    });
+  })));
+  const urgentes = lotes.filter(l => l.dias <= 7).sort((a,b)=>a.dias-b.dias);
+  const atencao  = lotes.filter(l => l.dias > 7 && l.dias <= 45).sort((a,b)=>a.dias-b.dias);
+  const criticos = urgentes.concat(atencao);
+  const lojasAfetadas = new Set(criticos.map(l => l.loja+"|"+l.ende)).size;
+  const unidades = criticos.reduce((s,l)=>s+l.qtd, 0);
+
+  /* ── Auxiliares de desenho ── */
+  const AZUL=[44,57,127], CINZA=[107,122,153], VERDE=[21,128,61], VERM=[220,38,38], AMAR=[180,83,9];
+  const cortar = (txt, larg, tam) => {
+    pdf.setFontSize(tam);
+    let s = String(txt==null?"":txt);
+    while (s.length > 4 && pdf.getTextWidth(s) > larg) s = s.slice(0,-2);
+    return s;
+  };
+  const secao = (y, txt) => {
+    pdf.setFont("helvetica","bold"); pdf.setFontSize(8); pdf.setTextColor(...CINZA);
+    pdf.text(txt.toUpperCase(), margin, y);
+    pdf.setTextColor(0,0,0);
+    return y + 4.5;
+  };
+  const kpis = (y, itens) => {
+    const h = 25, cw = util/itens.length;
+    pdf.setDrawColor(220,225,236); pdf.setLineWidth(0.3);
+    pdf.rect(margin, y, util, h);
+    itens.forEach((it, i) => {
+      const x = margin + cw*i;
+      if (i) pdf.line(x, y, x, y+h);
+      pdf.setFont("helvetica","bold"); pdf.setFontSize(7); pdf.setTextColor(...CINZA);
+      pdf.text(cortar(it.rot.toUpperCase(), cw-8, 7), x+4, y+6);
+      pdf.setFontSize(18); pdf.setTextColor(...it.cor);
+      pdf.text(String(it.val), x+4, y+15.5);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(6.5); pdf.setTextColor(...CINZA);
+      pdf.text(cortar(it.sub, cw-8, 6.5), x+4, y+20.5);
+    });
+    pdf.setTextColor(0,0,0);
+    return y + h;
+  };
+  const nota = (y, txt) => {
+    pdf.setFont("helvetica","normal"); pdf.setFontSize(7); pdf.setTextColor(...CINZA);
+    const linhas = pdf.splitTextToSize(txt, util);
+    pdf.text(linhas, margin, y+3.5);
+    pdf.setTextColor(0,0,0);
+    return y + 3.5 + linhas.length*3.1;
+  };
+
+  /* ── PÁGINA 1: capa + quadros gerenciais ── */
+  pdf.setFillColor(...AZUL); pdf.rect(0,0,pw,42,"F");
+  pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(19);
+  pdf.text("Relatório Semanal de Merchandising", margin, 22);
+  pdf.setFontSize(10); pdf.setFont("helvetica","normal");
+  const periodo = (f.ini?fmtBR(f.ini):"início") + " a " + (f.fim?fmtBR(f.fim):"fim")
+    + "   ·   " + (f.prom || "Todos os promotores")
+    + (redeFiltro ? ("   ·   " + redeFiltro) : "   ·   Todas as redes");
+  pdf.text(periodo, margin, 32);
   pdf.setTextColor(0,0,0);
-  let cursorY = 55;
+
+  let cursorY = 54;
+  cursorY = secao(cursorY, "Cobertura do período");
+  cursorY = kpis(cursorY, [
+    { rot:"Programadas", val:programadas, sub:"na semana",            cor:AZUL },
+    { rot:"Realizadas",  val:realizadas,  sub:"registradas no app",   cor:VERDE },
+    { rot:"Não feitas",  val:naoFeitas,   sub:"saldo do período",     cor:VERM },
+    { rot:"% Realizado", val:perc+"%",    sub:realizadas+" de "+programadas, cor: perc>=80?VERDE:(perc>=50?AMAR:VERM) }
+  ]);
+  // Barra de progresso
+  cursorY += 4;
+  pdf.setFillColor(228,232,240); pdf.rect(margin, cursorY, util, 5, "F");
+  if (perc > 0) { pdf.setFillColor(...(perc>=80?VERDE:(perc>=50?AMAR:VERM))); pdf.rect(margin, cursorY, util*Math.min(perc,100)/100, 5, "F"); }
+  cursorY += 5;
+  cursorY = nota(cursorY, "Programadas: soma das " + lojasDoRelatorio.length + " loja(s) atrelada(s) pela frequência alocada — Semanal conta 1 na semana, Quinzenal 0,5 e Mensal 0,25. Visitas marcadas manualmente não entram em Realizadas.");
+
+  cursorY += 5;
+  cursorY = secao(cursorY, "Vencimentos encontrados no período");
+  cursorY = kpis(cursorY, [
+    { rot:"Urgente",       val:urgentes.length, sub:"vencem em até 7 dias",  cor:VERM },
+    { rot:"Atenção",       val:atencao.length,  sub:"vencem em até 45 dias", cor:AMAR },
+    { rot:"Lojas afetadas",val:lojasAfetadas,   sub:"com ao menos 1 lote",   cor:AZUL },
+    { rot:"Unidades",      val:unidades,        sub:"soma das quantidades",  cor:AZUL }
+  ]);
+
+  // Tabela dos lotes mais críticos
+  if (criticos.length) {
+    cursorY += 5;
+    const colX = [margin, margin+58, margin+116, margin+132, margin+158];
+    const larg = [56, 56, 14, 24, 26];
+    pdf.setFillColor(242,244,249); pdf.rect(margin, cursorY, util, 7, "F");
+    pdf.setFont("helvetica","bold"); pdf.setFontSize(7); pdf.setTextColor(...CINZA);
+    ["Loja","Produto","Qtd","Validade","Situação"].forEach((t,i) => pdf.text(t.toUpperCase(), colX[i]+2, cursorY+4.7));
+    cursorY += 7;
+    pdf.setTextColor(0,0,0);
+    criticos.slice(0,14).forEach(l => {
+      pdf.setDrawColor(237,240,246); pdf.line(margin, cursorY, margin+util, cursorY);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(7.5); pdf.setTextColor(0,0,0);
+      pdf.text(cortar(l.loja + (l.ende?(" - "+l.ende):""), larg[0]-4, 7.5), colX[0]+2, cursorY+4.6);
+      pdf.text(cortar(l.desc, larg[1]-4, 7.5), colX[1]+2, cursorY+4.6);
+      pdf.text(String(l.qtd||"—"), colX[2]+2, cursorY+4.6);
+      pdf.text(fmtBR(l.validade), colX[3]+2, cursorY+4.6);
+      const urg = l.dias <= 7;
+      pdf.setFont("helvetica","bold"); pdf.setTextColor(...(urg?VERM:AMAR));
+      pdf.text(urg ? (l.dias < 0 ? "Vencido" : "Urgente") : "Atenção", colX[4]+2, cursorY+4.6);
+      pdf.setTextColor(0,0,0);
+      cursorY += 6.2;
+    });
+    if (criticos.length > 14) cursorY = nota(cursorY, "Mostrando os 14 lotes mais críticos de " + criticos.length + ". A lista completa está em Relatórios › Vencimentos.");
+  } else {
+    cursorY = nota(cursorY, "Nenhum lote com vencimento em até 45 dias foi encontrado nas visitas do período.");
+  }
+
+  cursorY = nota(cursorY + 3, "Faixas deste relatório: Urgente = vence em até 7 dias do fim do período; Atenção = em até 45 dias. São critérios diferentes dos cartões da aba Visitas (≤120 dias e 121–270 dias), por isso os números não coincidem.");
 
   // Pré-filtra só visitas que têm alguma foto (antes/depois/mpdv)
   const comFoto = visitas.filter(v => {
@@ -3942,9 +4084,9 @@ window.exportarBookFotos = async function() {
         { titulo:"MPdV", urls: v.fotosMpdv || [] },
       ];
 
-      // Cabeçalho da visita
-      if (!primeira) { pdf.addPage(); cursorY = margin; }
-      primeira = false;
+      // Uma página por visita. A página 1 é o resumo gerencial, então TODA visita começa
+      // numa página nova.
+      pdf.addPage(); cursorY = margin;
       const dataFmt = v.data ? new Date(v.data+"T12:00:00").toLocaleDateString("pt-BR") : "—";
       pdf.setFillColor(244,246,249); pdf.rect(0,cursorY-6,pw,16,"F");
       pdf.setFont("helvetica","bold"); pdf.setFontSize(13); pdf.setTextColor(44,57,127);
@@ -3954,23 +4096,51 @@ window.exportarBookFotos = async function() {
       pdf.setTextColor(0,0,0);
       cursorY += 16;
 
+      // Fotos em GRADE de 3 por linha. Antes era uma foto por linha: a foto de celular
+      // é em pé, então saía com 45x60mm e sobravam ~140mm vazios na largura da página.
+      // Lado a lado cada foto fica MAIOR (célula de 59mm) e a página rende 3x mais.
+      // As fotos não são giradas — girar deixaria a gôndola de lado.
+      const COLS = 3, GAP = 4;
+      const cellW = (util - GAP*(COLS-1)) / COLS; // ~59,3mm
+      const cellH = 75;                            // teto de altura por linha
+
       for (const g of grupos) {
         const urls = g.urls || [];
         if (!urls.length) continue;
+
+        // Carrega as fotos do grupo antes de desenhar, para saber a altura da linha
+        const imgs = [];
         for (const url of urls) {
           const img = await carregarImagemBook(url);
-          if (!img) continue;
-          totalFotos++;
-          const maxW = 80, maxH = 60;
-          let w = maxW, h = w * (img.h/img.w);
-          if (h > maxH) { h = maxH; w = h * (img.w/img.h); }
-          if (cursorY + h + 10 > ph - margin) { pdf.addPage(); cursorY = margin; }
-          pdf.setFont("helvetica","bold"); pdf.setFontSize(10); pdf.setTextColor(44,57,127);
-          pdf.text(g.titulo, margin, cursorY+4);
-          pdf.setTextColor(0,0,0);
-          pdf.addImage(img.dataURL, "JPEG", margin, cursorY+6, w, h);
-          cursorY += h + 12;
+          if (img) { imgs.push(img); totalFotos++; }
         }
+        if (!imgs.length) continue;
+
+        // Rótulo do grupo (Antes / Depois / MPdV)
+        if (cursorY + 20 > ph - margin) { pdf.addPage(); cursorY = margin; }
+        pdf.setFont("helvetica","bold"); pdf.setFontSize(10); pdf.setTextColor(44,57,127);
+        pdf.text(g.titulo, margin, cursorY+4);
+        pdf.setTextColor(0,0,0);
+        cursorY += 7;
+
+        for (let k = 0; k < imgs.length; k += COLS) {
+          const linha = imgs.slice(k, k+COLS);
+          // Cada foto cabe na célula mantendo a proporção original
+          const medidas = linha.map(im => {
+            let w = cellW, h = w * (im.h/im.w);
+            if (h > cellH) { h = cellH; w = h * (im.w/im.h); }
+            return { im, w, h };
+          });
+          const alturaLinha = Math.max(...medidas.map(m => m.h));
+          if (cursorY + alturaLinha + 4 > ph - margin) { pdf.addPage(); cursorY = margin; }
+          medidas.forEach((m, i) => {
+            const xCel = margin + i*(cellW + GAP);
+            const x = xCel + (cellW - m.w)/2; // centraliza na célula
+            pdf.addImage(m.im.dataURL, "JPEG", x, cursorY, m.w, m.h);
+          });
+          cursorY += alturaLinha + 4;
+        }
+        cursorY += 3;
       }
     }
 
@@ -3989,7 +4159,7 @@ window.exportarBookFotos = async function() {
   }
 
   status.textContent = `Finalizando o PDF com ${totalFotos} foto(s)…`;
-  const nome = "Book_Fotos" + relSufixo() + ".pdf";
+  const nome = "Relatorio_Semanal_Merchandising" + relSufixo() + ".pdf";
   pdf.save(nome);
   btn.disabled = false; btn.textContent = "⬇️ Gerar PDF";
   status.textContent = `✓ PDF gerado com ${totalFotos} foto(s) de ${totalVisitas} visita(s).`;
@@ -4017,7 +4187,7 @@ function renderRelatorios() {
   sel.innerHTML = `<option value="">Todos</option>` + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${n}">${n}</option>`).join("");
   sel.value = atual;
 
-  // Popula redes/canais no Book de Fotos
+  // Popula redes/canais no Relatório Semanal de Merchandising
   const selRede = document.getElementById("book-rede");
   if (selRede) {
     const atualR = selRede.value;
