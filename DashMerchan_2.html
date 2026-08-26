@@ -2991,9 +2991,22 @@ function setCobMpdv(perc, sub) {
 }
 
 
+// Busca por loja dentro da lista "Visitas de <promotor>". Fica fora da função para o texto
+// digitado sobreviver aos re-renders, e re-renderiza SÓ esta lista (chamar renderCobertura
+// aqui destruiria o campo e faria perder o foco a cada letra).
+let COB_BUSCA_LOJA = "";
+let _VPP_ARGS = null;
+window.buscarLojaVisitas = function(valor) {
+  COB_BUSCA_LOJA = valor || "";
+  if (_VPP_ARGS) renderVisitasPorPromotor.apply(null, _VPP_ARGS);
+  const el = document.getElementById("cob-busca-loja");
+  if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+};
+
 function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
   const cont = document.getElementById("cob-visitas-promotor");
   if (!cont) return;
+  _VPP_ARGS = [fProm, fUF, fCanal, mes, lojasAtreladas]; // para a busca re-renderizar
   const todos = (fProm === "__TODOS__");
   if (!fProm) {
     cont.innerHTML = `<div style="background:var(--card2);border:1px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--muted);font-size:13px;">Filtre por um promotor acima para ver e marcar as visitas loja a loja.</div>`;
@@ -3020,8 +3033,15 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
     return { loja:l, chaveManual, idx, feita, qtdManual, totalFeitas, datas, atrelada };
   });
 
+  // Os contadores usam o total do promotor no mês, não o resultado da busca: são o resumo
+  // do mês e não devem mudar conforme você digita.
   const feitas = linhas.filter(l=>l.feita).length;
   const naoFeitas = linhas.length - feitas;
+
+  const q = COB_BUSCA_LOJA.toLowerCase().trim();
+  const linhasVis = q
+    ? linhas.filter(l => ((l.loja.nome||"") + " " + (l.loja.ende||"")).toLowerCase().includes(q))
+    : linhas.slice();
 
   let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
@@ -3031,13 +3051,21 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
         <span style="color:var(--red);font-weight:700;">○ ${naoFeitas} sem visita</span>
       </div>
     </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <input type="text" id="cob-busca-loja" value="${COB_BUSCA_LOJA.replace(/"/g,"&quot;")}" placeholder="🔍 Buscar loja por nome ou endereço…" oninput="buscarLojaVisitas(this.value)" autocomplete="off"
+        style="flex:1;min-width:220px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 11px;outline:none;font-family:var(--font);">
+      ${q ? `<span style="font-size:12px;color:var(--muted);white-space:nowrap;">mostrando ${linhasVis.length} de ${linhas.length}</span>
+             <button onclick="buscarLojaVisitas('')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;">Limpar</button>` : ""}
+    </div>
     <div class="cob-scroll" style="max-height:400px;overflow-y:auto;"><table><thead><tr><th style="width:40px;"></th><th>Loja</th><th>Atreladas/mês</th><th>Realizadas</th><th>Datas (app)</th><th>${todos?"":"Marcar manual"}</th></tr></thead><tbody>`;
 
   // Guarda as chaves por índice para os botões usarem (evita problema de aspas no onclick)
+  // Preenche as chaves de TODAS as lojas (não só as visíveis na busca), para os botões
+  // + / − continuarem apontando para a loja certa quando a lista está filtrada.
   window._COB_CHAVES = {};
-  linhas.sort((a,b)=> (a.feita===b.feita)?0:(a.feita?1:-1));
-  linhas.forEach(l => {
-    window._COB_CHAVES[l.idx] = l.chaveManual;
+  linhas.forEach(l => { window._COB_CHAVES[l.idx] = l.chaveManual; });
+  linhasVis.sort((a,b)=> (a.feita===b.feita)?0:(a.feita?1:-1));
+  linhasVis.forEach(l => {
     const completa = l.totalFeitas >= l.atrelada;
     const icon = l.feita ? "✓" : "○";
     const cor = completa ? "var(--green)" : (l.feita ? "var(--yellow)" : "var(--muted)");
