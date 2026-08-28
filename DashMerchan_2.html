@@ -808,6 +808,12 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
             <button type="button" id="cob-rede-btn" onclick="toggleRedeDropdown()" class="filter-select" style="width:100%;text-align:left;cursor:pointer;background:var(--card2);">Todas as redes ▾</button>
             <div id="cob-rede-menu" style="display:none;position:absolute;z-index:20;top:100%;left:0;right:0;margin-top:4px;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(26,43,74,.14);max-height:260px;overflow-y:auto;padding:6px;"></div>
           </div>
+          <!-- Filtro de promotor DESTA seção (cobertura). É independente do filtro de
+               promotor da seção "Desempenho por promotor", mais abaixo na página. -->
+          <div style="min-width:180px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor (cobertura)</label>
+            <select id="cob-promotor-topo" onchange="renderCobertura()" class="filter-select" style="width:100%;"><option value="__TODOS__">Todos os promotores</option></select>
+          </div>
         </div>
       </div>
 
@@ -873,8 +879,9 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
           <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
             <div style="min-width:180px;">
-              <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor</label>
+              <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor (desempenho)</label>
               <select id="cob-promotor" onchange="renderCobertura()" class="filter-select" style="width:100%;"><option value="__TODOS__">Todos os promotores</option></select>
+              <p style="font-size:11px;color:var(--muted);margin-top:5px;">Filtra apenas esta seção. A cobertura, no topo da página, tem o seu próprio filtro de promotor.</p>
             </div>
           </div>
         </div>
@@ -2855,12 +2862,15 @@ let COB_FILTRO = { fProm:"", fUF:"", fCanal:"", mes:"" };
 function renderCobertura() {
   popularFiltrosCobertura();
 
-  const fProm = document.getElementById("cob-promotor")?.value || "";
+  const fProm = document.getElementById("cob-promotor")?.value || "";           // seção de baixo
+  const fPromTopo = document.getElementById("cob-promotor-topo")?.value || "";  // seção de cima
   const fUF = document.getElementById("cob-uf")?.value || "";
   const mes = document.getElementById("cob-mes")?.value || "";
   const fRedes = COB_REDES.slice(); // [] = todas
   const passaRede = l => fRedes.length===0 || fRedes.includes(l.canal||"");
-  COB_FILTRO = { fProm, fUF, fCanal:"", mes, fRedes };
+  // Dois filtros de promotor independentes: fPromTopo vale para as listas dos cartões de
+  // cobertura; fProm vale só para "Desempenho por promotor" e a lista de visitas dele.
+  COB_FILTRO = { fProm, fPromTopo, fUF, fCanal:"", mes, fRedes };
 
   function noMes(dataStr) {
     if (!mes) return true;
@@ -3091,11 +3101,12 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
   cont.innerHTML = html;
 }
 
-window.abrirListaCobertura = function(tipo) {
+window.abrirListaCobertura = function(tipo, manterBusca) {
   const cont = document.getElementById("cob-lista-lojas");
   if (!cont) return;
+  if (!manterBusca) COB_BUSCA_LISTA = ""; // clique num cartão começa a lista sem filtro
   COB_LISTA_ABERTA = { tipo:"cobertura", arg:tipo };
-  const { fProm, fUF, fRedes } = COB_FILTRO;
+  const { fPromTopo, fUF, fRedes } = COB_FILTRO; // promotor DESTA seção, não o de baixo
   // Antes isto lia fCanal, que renderCobertura preenche SEMPRE como "" — o filtro de
   // Rede não tinha efeito aqui e a lista abria maior que o número do card. O filtro
   // real de redes é o array fRedes ([] = todas as redes).
@@ -3108,7 +3119,7 @@ window.abrirListaCobertura = function(tipo) {
   // "__TODOS__" é o valor da opção "Todos os promotores" do filtro — NÃO é nome de
   // promotor. Sem este tratamento, o filtro procurava alguém chamado "__TODOS__",
   // não achava ninguém e a lista de "Lojas com promotor" abria vazia.
-  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
+  const promEsp = (fPromTopo && fPromTopo !== "__TODOS__") ? fPromTopo : "";
   if (tipo === "com") {
     lojas = lojas.filter(l => promEsp ? (l.promotores||[]).includes(promEsp) : (l.promotores||[]).length>0);
   } else if (tipo === "sem") {
@@ -3119,18 +3130,31 @@ window.abrirListaCobertura = function(tipo) {
   // ignorando o promotor. Filtrar aqui fazia a lista abrir menor que o número do card.
   lojas.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
 
+  // Busca digitada dentro da lista. O total do grupo continua sendo mostrado ao lado, para
+  // o número do cartão e o da lista nunca parecerem divergentes.
+  const totalGrupo = lojas.length;
+  const busca = COB_BUSCA_LISTA.toLowerCase().trim();
+  if (busca) lojas = lojas.filter(l =>
+    ((l.nome||"") + " " + (l.ende||"") + " " + (l.uf||"") + " " + (l.canal||"")).toLowerCase().includes(busca)
+  );
+
   const titulos = { total:"Todas as lojas", com:"Lojas com promotor", sem:"Lojas sem promotor (backlog)" };
   const opcoesProm = PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("");
 
   let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <h3 style="font-size:15px;font-weight:700;">${titulos[tipo]||"Lojas"} <span style="color:var(--muted);font-weight:400;">(${lojas.length})</span></h3>
+      <h3 style="font-size:15px;font-weight:700;">${titulos[tipo]||"Lojas"} <span style="color:var(--muted);font-weight:400;">(${busca ? (lojas.length + " de " + totalGrupo) : totalGrupo})</span></h3>
       <button onclick="document.getElementById('cob-lista-lojas').innerHTML=''" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <input type="text" id="cob-busca-lista" value="${COB_BUSCA_LISTA.replace(/"/g,"&quot;")}" placeholder="🔍 Buscar loja por nome, endereço, UF ou canal…" oninput="buscarNaListaCob(this.value)" autocomplete="off"
+        style="flex:1;min-width:240px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 11px;outline:none;font-family:var(--font);">
+      ${busca ? `<button onclick="buscarNaListaCob('')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;">Limpar</button>` : ""}
     </div>
     <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq. ideal</th><th>Freq. alocada</th><th>Freq. realizada (mês)</th><th>Promotor(es)</th><th></th></tr></thead><tbody>`;
 
   if (!lojas.length) {
-    html += `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Nenhuma loja neste grupo.</td></tr>`;
+    html += `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">${busca ? "Nenhuma loja encontrada para \"" + busca + "\"." : "Nenhuma loja neste grupo."}</td></tr>`;
   } else {
     lojas.slice(0,500).forEach(l => {
       // ef = loja já com as alterações pendentes aplicadas. O FILTRO da lista continua
@@ -3282,10 +3306,21 @@ window.addEventListener("beforeunload", function(e) {
 // Guarda qual lista está aberta em #cob-lista-lojas, para que alocar/retirar promotor
 // possa reabrir a MESMA lista já atualizada em vez de sempre voltar para o backlog.
 let COB_LISTA_ABERTA = null;
+
+// Texto digitado na busca das listas de cobertura. Fica fora da função para sobreviver aos
+// re-renders (a lista é remontada a cada letra) e é zerado ao abrir a lista por um cartão.
+let COB_BUSCA_LISTA = "";
+window.buscarNaListaCob = function(valor) {
+  COB_BUSCA_LISTA = valor || "";
+  reabrirListaCob();
+  const el = document.getElementById("cob-busca-lista");
+  if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+};
+
 function reabrirListaCob() {
   const a = COB_LISTA_ABERTA;
   if (!a) return;
-  if (a.tipo === "cobertura")      abrirListaCobertura(a.arg);
+  if (a.tipo === "cobertura")      abrirListaCobertura(a.arg, true); // true = mantém a busca
   else if (a.tipo === "atreladas") abrirListaVisitasAtreladas();
   else if (a.tipo === "realizadas") abrirListaVisitasRealizadas();
 }
@@ -3297,9 +3332,9 @@ window.abrirListaVisitasAtreladas = function() {
   const cont = document.getElementById("cob-lista-lojas");
   if (!cont) return;
   COB_LISTA_ABERTA = { tipo:"atreladas" };
-  const { fProm, fUF, fRedes } = COB_FILTRO;
+  const { fPromTopo, fUF, fRedes } = COB_FILTRO; // promotor DESTA seção, não o de baixo
   const redes = fRedes || [];
-  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
+  const promEsp = (fPromTopo && fPromTopo !== "__TODOS__") ? fPromTopo : "";
 
   const lojas = LOJAS_DB.filter(l => {
     if (fUF && (l.uf||"") !== fUF) return false;
@@ -3373,9 +3408,9 @@ window.abrirListaVisitasRealizadas = function() {
   const cont = document.getElementById("cob-lista-lojas");
   if (!cont) return;
   COB_LISTA_ABERTA = { tipo:"realizadas" };
-  const { fProm, fUF, fRedes, mes } = COB_FILTRO;
+  const { fPromTopo, fUF, fRedes, mes } = COB_FILTRO; // promotor DESTA seção
   const redes = fRedes || [];
-  const promEsp = (fProm && fProm !== "__TODOS__") ? fProm : "";
+  const promEsp = (fPromTopo && fPromTopo !== "__TODOS__") ? fPromTopo : "";
   const noMes = d => !mes ? true : (!!d && d.startsWith(mes));
 
   // Casa a visita com o cadastro para poder filtrar por UF e por rede
@@ -3655,14 +3690,19 @@ window.marcarRede = function(rede, marcar){
 function popularFiltrosCobertura() {
   popularFiltroRedes();
   // Promotores (linha 3) — sempre repopula preservando seleção
-  const selP = document.getElementById("cob-promotor");
-  if (selP) {
-    const atual = selP.value || "__TODOS__";
-    const nomes = new Set(PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>p.nome));
-    LOJAS_DB.forEach(l => (l.promotores||[]).forEach(p=>nomes.add(p)));
-    selP.innerHTML = `<option value="__TODOS__">Todos os promotores</option>` + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${n}">${n}</option>`).join("");
-    selP.value = atual;
-  }
+  // Os DOIS seletores de promotor (o da cobertura, em cima, e o do desempenho, embaixo)
+  // recebem a mesma lista, mas cada um guarda a sua própria seleção.
+  const nomes = new Set(PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>p.nome));
+  LOJAS_DB.forEach(l => (l.promotores||[]).forEach(p=>nomes.add(p)));
+  const opcoesPromCob = `<option value="__TODOS__">Todos os promotores</option>`
+    + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${n}">${n}</option>`).join("");
+  ["cob-promotor", "cob-promotor-topo"].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const atual = sel.value || "__TODOS__";
+    sel.innerHTML = opcoesPromCob;
+    sel.value = atual;
+  });
   // Estado
   const selU = document.getElementById("cob-uf");
   if (selU) {
