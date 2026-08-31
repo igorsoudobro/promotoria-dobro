@@ -801,7 +801,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           </div>
           <div style="min-width:130px;">
             <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Mês de referência</label>
-            <input type="month" id="cob-mes" onchange="renderCobertura()" class="filter-select" style="width:100%;">
+            <input type="month" id="cob-mes" onchange="trocarMesCobertura()" class="filter-select" style="width:100%;">
           </div>
           <div style="min-width:200px;position:relative;">
             <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal</label>
@@ -816,6 +816,9 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
           </div>
         </div>
       </div>
+
+      <!-- Aviso de rota histórica (só leitura) -->
+      <div id="cob-aviso-mes" style="display:none;margin-bottom:16px;"></div>
 
       <!-- Linha 1: Cobertura de PROMOTORIA (geral, estrutural) -->
       <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 10px;">Cobertura de promotoria (geral · estrutural)</h3>
@@ -914,6 +917,21 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <div id="cob-visitas-promotor"></div>
       </div>
 
+
+      <!-- Rota do mês: registrar a atual e importar da planilha -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:4px;">Rota do mês</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">A rota fica guardada por mês. Registre a rota atual antes de subir a do mês seguinte, senão a atual se perde.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <button onclick="registrarRotaDoMes()" style="background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">📌 Registrar rota deste mês</button>
+          <label style="background:var(--accent);color:#fff;border-radius:9px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:inline-flex;align-items:center;gap:6px;">
+            📤 Importar rota (Excel)
+            <input type="file" id="rota-input" accept=".xlsx,.xls" style="display:none;" onchange="importarRotaExcel(this)">
+          </label>
+          <span style="font-size:11px;color:var(--muted);">Colunas: Loja · Endereço · Frequência · mês · promotor</span>
+        </div>
+        <div id="rota-import-status" style="display:none;margin-top:14px;"></div>
+      </div>
 
       <details style="margin-bottom:20px;">
         <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--accent);">📥 Importar roteiro antigo / listagem detalhada por loja</summary>
@@ -2871,6 +2889,7 @@ function renderCobertura() {
   // Dois filtros de promotor independentes: fPromTopo vale para as listas dos cartões de
   // cobertura; fProm vale só para "Desempenho por promotor" e a lista de visitas dele.
   COB_FILTRO = { fProm, fPromTopo, fUF, fCanal:"", mes, fRedes };
+  renderAvisoMesRota();
 
   function noMes(dataStr) {
     if (!mes) return true;
@@ -3101,25 +3120,25 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
   cont.innerHTML = html;
 }
 
-window.abrirListaCobertura = function(tipo, manterBusca) {
-  const cont = document.getElementById("cob-lista-lojas");
-  if (!cont) return;
-  if (!manterBusca) COB_BUSCA_LISTA = ""; // clique num cartão começa a lista sem filtro
-  COB_LISTA_ABERTA = { tipo:"cobertura", arg:tipo };
+// Conjunto de lojas de uma lista de cobertura, já com filtro de Estado/Rede/Promotor e a
+// busca digitada aplicados. Extraído de abrirListaCobertura para o "Desvincular todos"
+// agir sobre EXATAMENTE as mesmas lojas que estão na tela — sem duplicar a regra.
+function lojasDaListaCob(tipo) {
   const { fPromTopo, fUF, fRedes } = COB_FILTRO; // promotor DESTA seção, não o de baixo
   // Antes isto lia fCanal, que renderCobertura preenche SEMPRE como "" — o filtro de
   // Rede não tinha efeito aqui e a lista abria maior que o número do card. O filtro
   // real de redes é o array fRedes ([] = todas as redes).
   const redes = fRedes || [];
+  // "__TODOS__" é o valor da opção "Todos os promotores" do filtro — NÃO é nome de
+  // promotor. Sem este tratamento, o filtro procurava alguém chamado "__TODOS__",
+  // não achava ninguém e a lista de "Lojas com promotor" abria vazia.
+  const promEsp = (fPromTopo && fPromTopo !== "__TODOS__") ? fPromTopo : "";
+
   let lojas = LOJAS_DB.filter(l => {
     if (fUF && (l.uf||"") !== fUF) return false;
     if (redes.length && !redes.includes(l.canal||"")) return false;
     return true;
   });
-  // "__TODOS__" é o valor da opção "Todos os promotores" do filtro — NÃO é nome de
-  // promotor. Sem este tratamento, o filtro procurava alguém chamado "__TODOS__",
-  // não achava ninguém e a lista de "Lojas com promotor" abria vazia.
-  const promEsp = (fPromTopo && fPromTopo !== "__TODOS__") ? fPromTopo : "";
   if (tipo === "com") {
     lojas = lojas.filter(l => promEsp ? (l.promotores||[]).includes(promEsp) : (l.promotores||[]).length>0);
   } else if (tipo === "sem") {
@@ -3130,13 +3149,51 @@ window.abrirListaCobertura = function(tipo, manterBusca) {
   // ignorando o promotor. Filtrar aqui fazia a lista abrir menor que o número do card.
   lojas.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
 
-  // Busca digitada dentro da lista. O total do grupo continua sendo mostrado ao lado, para
-  // o número do cartão e o da lista nunca parecerem divergentes.
-  const totalGrupo = lojas.length;
+  const total = lojas.length;
   const busca = COB_BUSCA_LISTA.toLowerCase().trim();
-  if (busca) lojas = lojas.filter(l =>
-    ((l.nome||"") + " " + (l.ende||"") + " " + (l.uf||"") + " " + (l.canal||"")).toLowerCase().includes(busca)
-  );
+  const visiveis = busca
+    ? lojas.filter(l => ((l.nome||"")+" "+(l.ende||"")+" "+(l.uf||"")+" "+(l.canal||"")).toLowerCase().includes(busca))
+    : lojas;
+  return { lojas: visiveis, total, busca, promEsp };
+}
+
+// Desvincula em massa as lojas da lista aberta, respeitando o filtro de Estado/Rede/Promotor
+// e a busca digitada. Com um promotor selecionado no topo, retira SÓ ele; com "Todos os
+// promotores", retira todos. Loja que fica sem promotor tem a freq. alocada zerada.
+// Entra na fila de pendentes: nada é gravado antes do "Salvar alterações", e dá para descartar.
+window.desvincularTodosDaLista = function() {
+  if (bloqueadoPorHistorico()) return;
+  const a = COB_LISTA_ABERTA;
+  if (!a || a.tipo !== "cobertura") return;
+  const conj = lojasDaListaCob(a.arg);
+  const alvo = conj.lojas.filter(l => (lojaEfetiva(l).promotores||[]).length);
+  if (!alvo.length) { alert("Nenhuma loja com promotor na lista atual."); return; }
+
+  const escopo = conj.busca ? ` (filtradas por "${conj.busca}")` : "";
+  const msg = conj.promEsp
+    ? `Desvincular ${conj.promEsp} de ${alvo.length} loja(s)${escopo}?`
+    : `Desvincular TODOS os promotores de ${alvo.length} loja(s)${escopo}?`;
+  if (!confirm(msg + `\n\nA frequência alocada volta para "não visita" nas lojas que ficarem sem promotor.\n\nNada é gravado agora: as alterações vão para a fila e você confirma em "Salvar alterações" — ou descarta.`)) return;
+
+  alvo.forEach(l => {
+    const ef = lojaEfetiva(l);
+    const restantes = conj.promEsp ? (ef.promotores||[]).filter(p => p !== conj.promEsp) : [];
+    definirPendente(l.id, restantes, restantes.length ? (ef.freqAtr||"") : "");
+  });
+  renderBarraPendentes();
+  renderCobertura();
+  reabrirListaCob();
+};
+
+window.abrirListaCobertura = function(tipo, manterBusca) {
+  const cont = document.getElementById("cob-lista-lojas");
+  if (!cont) return;
+  if (!manterBusca) COB_BUSCA_LISTA = ""; // clique num cartão começa a lista sem filtro
+  COB_LISTA_ABERTA = { tipo:"cobertura", arg:tipo };
+
+  const conj = lojasDaListaCob(tipo);
+  let lojas = conj.lojas;
+  const totalGrupo = conj.total, busca = conj.busca, promEsp = conj.promEsp;
 
   const titulos = { total:"Todas as lojas", com:"Lojas com promotor", sem:"Lojas sem promotor (backlog)" };
   const opcoesProm = PROMOTORES_DB.filter(p=>p.ativo!==false).map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("");
@@ -3150,6 +3207,9 @@ window.abrirListaCobertura = function(tipo, manterBusca) {
       <input type="text" id="cob-busca-lista" value="${COB_BUSCA_LISTA.replace(/"/g,"&quot;")}" placeholder="🔍 Buscar loja por nome, endereço, UF ou canal…" oninput="buscarNaListaCob(this.value)" autocomplete="off"
         style="flex:1;min-width:240px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 11px;outline:none;font-family:var(--font);">
       ${busca ? `<button onclick="buscarNaListaCob('')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;">Limpar</button>` : ""}
+      ${tipo !== "sem" && lojas.some(l => (lojaEfetiva(l).promotores||[]).length)
+        ? `<button onclick="desvincularTodosDaLista()" title="Desvincula as lojas desta lista, respeitando o filtro e a busca" style="background:rgba(229,57,53,.08);border:1px solid var(--red);color:var(--red);border-radius:7px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">⛓️‍💥 Desvincular ${promEsp ? promEsp : "todos"}${busca ? " (filtrados)" : ""}</button>`
+        : ""}
     </div>
     <div style="max-height:420px;overflow-y:auto;"><table><thead><tr><th>Loja</th><th>UF</th><th>Canal</th><th>Freq. ideal</th><th>Freq. alocada</th><th>Freq. realizada (mês)</th><th>Promotor(es)</th><th></th></tr></thead><tbody>`;
 
@@ -3193,6 +3253,375 @@ window.abrirListaCobertura = function(tipo, manterBusca) {
   cont.scrollIntoView({behavior:"smooth", block:"nearest"});
 };
 
+/* ─── ROTA POR MÊS ───
+   Até aqui a alocação vivia só em lojas.promotores / lojas.freqAtr, sem noção de mês:
+   subir a rota de setembro apagava a de agosto para sempre. Agora, a cada gravação, a
+   rota do mês corrente é fotografada em config/rota_AAAA-MM.
+   O documento da loja continua sendo A ROTA EM VIGOR — o app dos promotores lê
+   lojas.promotores ao vivo para mostrar ao promotor só as lojas dele.
+   Guardamos em config/ (e não numa coleção "rotas" nova) porque as regras do Firestore
+   já permitem escrita autenticada em config/ — coleção nova seria negada por padrão. */
+let ROTA_VIVA = null;              // fotografia da alocação em vigor, para restaurar
+let ROTA_MES_EXIBIDO = null;       // mês cuja rota está aplicada na memória
+let ROTA_SOMENTE_LEITURA = false;  // true quando o mês exibido é histórico
+let ROTA_SEM_REGISTRO = false;     // true quando o mês histórico não tem rota salva
+
+function mesRefAtual() {
+  const h = new Date();
+  return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,"0")}`;
+}
+
+// Só pode ser chamada logo após carregar LOJAS_DB do Firestore, senão fotografaria um
+// overlay histórico como se fosse a rota em vigor.
+function capturarRotaViva() {
+  ROTA_VIVA = {};
+  LOJAS_DB.forEach(l => { ROTA_VIVA[l.id] = { promotores:[...(l.promotores||[])], freqAtr: l.freqAtr||"" }; });
+}
+
+function aplicarRotaNaMemoria(mapa) {
+  LOJAS_DB.forEach(l => {
+    const r = mapa ? mapa[l.id] : null;
+    l.promotores = r ? [...(r.promotores||[])] : [];
+    l.freqAtr = r ? (r.freqAtr||"") : "";
+  });
+}
+
+async function salvarSnapshotRota(mes) {
+  if (!mes) return;
+  const mapa = {};
+  LOJAS_DB.forEach(l => {
+    if ((l.promotores||[]).length) mapa[l.id] = { promotores:[...l.promotores], freqAtr: l.freqAtr||"" };
+  });
+  await firebase.firestore().collection("config").doc("rota_"+mes).set(mapa);
+}
+
+async function carregarSnapshotRota(mes) {
+  const snap = await firebase.firestore().collection("config").doc("rota_"+mes).get();
+  return snap.exists ? (snap.data()||{}) : null;
+}
+
+// Mês passado = só leitura. Bloqueia qualquer edição de rota fora do mês corrente.
+function bloqueadoPorHistorico() {
+  if (!ROTA_SOMENTE_LEITURA) return false;
+  alert(`Você está vendo a rota de ${ROTA_MES_EXIBIDO || "outro mês"}, que é histórico e não pode ser alterada.\n\nVolte o "Mês de referência" para ${mesRefAtual()} para editar a rota em vigor.`);
+  return true;
+}
+
+window.trocarMesCobertura = async function() {
+  const sel = document.getElementById("cob-mes");
+  const mes = sel ? (sel.value || "") : "";
+  if (pendentesQtd()) {
+    if (!confirm(`Você tem ${pendentesQtd()} alteração(ões) não salva(s) na rota.\n\nTrocar de mês vai descartá-las. Continuar?`)) {
+      if (sel) sel.value = ROTA_MES_EXIBIDO || mesRefAtual();
+      return;
+    }
+    COB_PENDENTES = {}; renderBarraPendentes();
+  }
+  if (!ROTA_VIVA) capturarRotaViva();
+
+  if (!mes || mes === mesRefAtual()) {
+    aplicarRotaNaMemoria(ROTA_VIVA);
+    ROTA_SOMENTE_LEITURA = false; ROTA_SEM_REGISTRO = false;
+  } else {
+    let snap = null;
+    try { snap = await carregarSnapshotRota(mes); }
+    catch(e) { console.warn("Rota do mês:", e); }
+    ROTA_SEM_REGISTRO = !snap;
+    aplicarRotaNaMemoria(snap || {});
+    ROTA_SOMENTE_LEITURA = true;
+  }
+  ROTA_MES_EXIBIDO = mes;
+  const cont = document.getElementById("cob-lista-lojas");
+  if (cont) cont.innerHTML = "";
+  COB_LISTA_ABERTA = null;
+  renderCobertura();
+};
+
+function renderAvisoMesRota() {
+  const el = document.getElementById("cob-aviso-mes");
+  if (!el) return;
+  if (!ROTA_SOMENTE_LEITURA) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.innerHTML = ROTA_SEM_REGISTRO
+    ? `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--yellow);"><strong>Sem rota registrada em ${ROTA_MES_EXIBIDO}.</strong> Nenhuma alocação foi salva para este mês, então os números aparecem zerados. Isso é esperado para meses anteriores à criação do histórico de rotas.</div>`
+    : `<div style="background:var(--accent-lo);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--accent);"><strong>Rota de ${ROTA_MES_EXIBIDO} — somente leitura.</strong> Você está vendo o histórico. Para editar a rota em vigor, volte o mês de referência para ${mesRefAtual()}.</div>`;
+}
+
+/* ─── REGISTRAR / IMPORTAR ROTA DO MÊS ─── */
+
+// Fotografa a alocação EM VIGOR para o mês escolhido, sem precisar editar nada. Serve para
+// congelar o mês corrente antes de subir a rota do mês seguinte.
+window.registrarRotaDoMes = async function() {
+  if (ROTA_SOMENTE_LEITURA) {
+    alert(`Você está vendo a rota de ${ROTA_MES_EXIBIDO}, que é histórico.\n\nVolte o mês de referência para ${mesRefAtual()} para registrar a rota em vigor.`);
+    return;
+  }
+  const mes = mesRefAtual();
+  const comProm = LOJAS_DB.filter(l => (l.promotores||[]).length).length;
+  if (!comProm) { alert("Nenhuma loja com promotor alocado. Não há rota para registrar."); return; }
+  let existente = null;
+  try { existente = await carregarSnapshotRota(mes); } catch(e) {}
+  const aviso = existente
+    ? `\n\nATENÇÃO: já existe rota registrada para ${mes} (${Object.keys(existente).length} loja(s)). Ela será substituída.`
+    : "";
+  if (!confirm(`Registrar a rota de ${mes} com ${comProm} loja(s) alocada(s)?${aviso}`)) return;
+  try {
+    await salvarSnapshotRota(mes);
+    alert(`✓ Rota de ${mes} registrada com ${comProm} loja(s).\n\nAgora você pode subir a rota do mês seguinte sem perder esta.`);
+  } catch(e) {
+    console.error(e);
+    alert("Não foi possível registrar a rota: " + (e.message||e));
+  }
+};
+
+let ROTA_IMPORT = null; // resultado da conferência, aguardando o "Aplicar"
+
+function normalizarCabecalho(s) {
+  return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z]/g,"");
+}
+// A coluna "mês" vem como número de série do Excel (46235 = 2026-08-01) ou como texto
+// ("set/26", "2026-09", "09/2026"). Devolve sempre "AAAA-MM".
+function mesDaPlanilha(v) {
+  if (v == null || v === "") return "";
+  if (typeof v === "number" && isFinite(v)) {
+    const d = new Date(Date.UTC(1899,11,30) + v*86400000);
+    if (!isNaN(d)) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}`;
+  }
+  if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}`;
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})/);            if (m) return `${m[1]}-${String(m[2]).padStart(2,"0")}`;
+  m = s.match(/^(\d{1,2})\/(\d{4})$/);              if (m) return `${m[2]}-${String(m[1]).padStart(2,"0")}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (m) { const a = m[3].length===2 ? "20"+m[3] : m[3]; return `${a}-${String(m[2]).padStart(2,"0")}`; }
+  const abrev = { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 };
+  m = s.toLowerCase().match(/^([a-zç]{3})[a-zç]*[\/\-\s]+(\d{2,4})$/);
+  if (m && abrev[m[1]]) { const a = m[2].length===2 ? "20"+m[2] : m[2]; return `${a}-${String(abrev[m[1]]).padStart(2,"0")}`; }
+  return "";
+}
+function normalizarFreq(v) {
+  const s = String(v||"").toLowerCase();
+  if (s.includes("seman")) return "Semanal";
+  if (s.includes("quinzen")) return "Quinzenal";
+  if (s.includes("mensal") || s.includes("mes")) return "Mensal";
+  return "";
+}
+
+/* Chaves de casamento da planilha de rota com a base de lojas.
+   chaveLojaCob (usada no resto do dash) é nome + PRIMEIRO número do endereço, e é fraca
+   demais para uma rede grande. Medido nas planilhas reais de agosto/setembro:
+     - "Rua Domingos de Morais, 2.931" → o número extraído era "2" (ponto de milhar),
+       juntando dois Obas completamente diferentes na chave "oba|2";
+     - "Drogaraia, Joaquim Nabuco 84" e "Drogaraia, Cassandoca 84" caíam na mesma chave.
+   A chave FORTE (nome + rua sem o tipo de via + número) deu ZERO colisão nos dois arquivos.
+   A FRACA fica como segunda tentativa, e só é aceita quando aponta para uma única loja. */
+const _limparTxt = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+function _semMilhar(ende) { return String(ende||"").replace(/(\d)\.(\d{3})(?!\d)/g, "$1$2"); }
+function chaveRotaForte(nome, ende) {
+  const e = _semMilhar(ende);
+  const num = (e.match(/\d{1,6}/)||[""])[0];
+  const rua = _limparTxt(e.split(",")[0])
+    .replace(/^(rua|r|avenida|av|alameda|al|praca|pca|pc|rodovia|rod|estrada|estr|travessa|tv|largo|lgo|marginal)/, "");
+  return _limparTxt(nome) + "|" + rua + "|" + num;
+}
+function chaveRotaFraca(nome, ende) {
+  const e = _semMilhar(ende);
+  const num = (e.match(/\d{1,6}/)||[""])[0];
+  return _limparTxt(nome) + "|" + num;
+}
+
+window.importarRotaExcel = function(input) {
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+  const box = document.getElementById("rota-import-status");
+  const mostrar = (html, cor) => { box.style.display="block"; box.innerHTML = `<div style="border:1px solid ${cor};background:${cor.replace("var(--","var(--").replace(")","-lo)")};border-radius:10px;padding:14px 16px;font-size:13px;">${html}</div>`; };
+  box.style.display = "block";
+  box.innerHTML = `<div style="font-size:13px;color:var(--muted);">Lendo a planilha…</div>`;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", cellDates:true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const linhas = XLSX.utils.sheet_to_json(ws, { defval:"" });
+      if (!linhas.length) { box.innerHTML = `<div style="color:var(--red);font-size:13px;">Planilha vazia.</div>`; return; }
+
+      // Casa os cabeçalhos ignorando acento e caixa
+      const mapa = {};
+      Object.keys(linhas[0]).forEach(k => { mapa[normalizarCabecalho(k)] = k; });
+      const cLoja = mapa["loja"], cEnde = mapa["endereco"], cFreq = mapa["frequencia"], cMes = mapa["mes"], cProm = mapa["promotor"];
+      const faltando = [];
+      if (!cLoja) faltando.push("Loja");
+      if (!cFreq) faltando.push("Frequência");
+      if (!cMes)  faltando.push("mês");
+      if (!cProm) faltando.push("promotor");
+      if (faltando.length) {
+        box.innerHTML = `<div style="border:1px solid var(--red);background:rgba(229,57,53,.06);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--red);">Não encontrei a(s) coluna(s): <strong>${faltando.join(", ")}</strong>.<br>Cabeçalhos lidos: ${Object.keys(linhas[0]).join(" · ")}</div>`;
+        return;
+      }
+
+      // Índices da base pelas duas chaves
+      const porForte = {}, porFraca = {};
+      LOJAS_DB.forEach(l => {
+        const kf = chaveRotaForte(l.nome, l.ende), kw = chaveRotaFraca(l.nome, l.ende);
+        (porForte[kf] = porForte[kf] || []).push(l);
+        (porFraca[kw] = porFraca[kw] || []).push(l);
+      });
+
+      // A planilha lista VISITAS, não lojas: a mesma loja aparece várias vezes (medido:
+      // 231 linhas = 123 lojas em agosto). Deduplica por loja e guarda os conflitos de
+      // frequência, que precisam ser decididos por você e não pelo "último venceu".
+      const meses = {}, promotores = {}, porLoja = {};
+      const semFreq = [];
+      let vazias = 0;
+      linhas.forEach((ln, i) => {
+        const nome = String(ln[cLoja]||"").trim();
+        const ende = cEnde ? String(ln[cEnde]||"").trim() : "";
+        const prom = String(ln[cProm]||"").trim();
+        const freq = normalizarFreq(ln[cFreq]);
+        const mes  = mesDaPlanilha(ln[cMes]);
+        if (!nome && !prom) { vazias++; return; }
+        if (mes) meses[mes] = (meses[mes]||0)+1;
+        if (prom) promotores[prom] = (promotores[prom]||0)+1;
+        const ref = { linha: i+2, nome, ende, prom, freq, mes };
+        if (!freq) { semFreq.push(ref); return; }
+        const k = chaveRotaForte(nome, ende) + "||" + prom;
+        if (!porLoja[k]) porLoja[k] = { nome, ende, prom, freqs:{}, linhas:[] };
+        porLoja[k].freqs[freq] = (porLoja[k].freqs[freq]||0) + 1;
+        porLoja[k].linhas.push(i+2);
+      });
+
+      const casadas = [], naoEncontradas = [], ambiguas = [], aproximadas = [], conflitoFreq = [];
+      Object.values(porLoja).forEach(it => {
+        const freqsUsadas = Object.keys(it.freqs);
+        // Conflito: a mesma loja com frequências diferentes na planilha. Fica de fora.
+        if (freqsUsadas.length > 1) {
+          conflitoFreq.push({ linha: it.linhas[0], nome: it.nome, ende: it.ende, freqs: freqsUsadas });
+          return;
+        }
+        const ref = { linha: it.linhas[0], nome: it.nome, ende: it.ende, prom: it.prom, freq: freqsUsadas[0], ocorrencias: it.linhas.length };
+        let achadas = porForte[chaveRotaForte(it.nome, it.ende)] || [];
+        let aproximada = false;
+        if (!achadas.length) { achadas = porFraca[chaveRotaFraca(it.nome, it.ende)] || []; aproximada = achadas.length === 1; }
+        if (!achadas.length) { naoEncontradas.push(ref); return; }
+        if (achadas.length > 1) { ambiguas.push(Object.assign(ref, { quantas: achadas.length })); return; }
+        const casada = Object.assign(ref, { lojaId: achadas[0].id, lojaNome: achadas[0].nome, lojaEnde: achadas[0].ende||"" });
+        casadas.push(casada);
+        if (aproximada) aproximadas.push(casada);
+      });
+
+      const mesesLista = Object.keys(meses);
+      ROTA_IMPORT = { casadas, naoEncontradas, ambiguas, semFreq, conflitoFreq, aproximadas,
+                      meses: mesesLista, promotores: Object.keys(promotores),
+                      total: linhas.length, lojasDistintas: Object.keys(porLoja).length };
+
+      const listinha = (arr, titulo) => !arr.length ? "" :
+        `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;">${titulo} (${arr.length})</summary>
+         <div style="max-height:170px;overflow-y:auto;margin-top:6px;font-size:11px;color:var(--muted);line-height:1.6;">
+         ${arr.slice(0,200).map(x=>`Linha ${x.linha}: <strong>${x.nome||"(sem nome)"}</strong> — ${x.ende||"(sem endereço)"}`).join("<br>")}
+         ${arr.length>200?`<br>… e mais ${arr.length-200}`:""}</div></details>`;
+
+      const problema = mesesLista.length !== 1;
+      box.innerHTML = `
+        <div style="border:1px solid var(--border);background:var(--card2);border-radius:10px;padding:14px 16px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Conferência antes de aplicar</div>
+          <div style="font-size:12px;line-height:1.9;">
+            Linhas na planilha: <strong>${linhas.length}</strong> → <strong>${ROTA_IMPORT.lojasDistintas}</strong> loja(s) distinta(s)
+            <span style="color:var(--muted);">(a planilha repete a loja uma vez por visita do mês)</span><br>
+            Mês: <strong style="color:${problema?"var(--red)":"var(--accent)"}">${mesesLista.join(", ")||"não identificado"}</strong>${problema?" ← a planilha deve ter um único mês":""}<br>
+            Promotor(es): <strong>${ROTA_IMPORT.promotores.join(", ")||"—"}</strong><br>
+            <span style="color:var(--green);font-weight:700;">✓ ${casadas.length} loja(s) casada(s) com a base</span>
+            ${aproximadas.length?`<span style="color:var(--muted);"> — ${aproximadas.length} por aproximação (só nome + número), confira</span>`:""}<br>
+            ${naoEncontradas.length?`<span style="color:var(--red);font-weight:700;">✕ ${naoEncontradas.length} não encontrada(s) na base</span><br>`:""}
+            ${ambiguas.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${ambiguas.length} ambígua(s) — casaram com mais de uma loja da base</span><br>`:""}
+            ${conflitoFreq.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${conflitoFreq.length} com frequências diferentes na mesma loja</span><br>`:""}
+            ${semFreq.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${semFreq.length} linha(s) sem frequência reconhecida</span><br>`:""}
+          </div>
+          ${listinha(naoEncontradas, "Ver as não encontradas")}
+          ${listinha(ambiguas, "Ver as ambíguas")}
+          ${listinha(aproximadas, "Ver as casadas por aproximação")}
+          ${listinha(conflitoFreq, "Ver as com conflito de frequência")}
+          ${listinha(semFreq, "Ver as sem frequência")}
+          <p style="font-size:11px;color:var(--muted);margin:12px 0 0;line-height:1.6;">
+            Ao aplicar: para <strong>cada promotor da planilha</strong>, a rota dele é substituída — ele é retirado de todas as lojas e recolocado só nas listadas, com a frequência indicada.
+            Promotores que não aparecem na planilha <strong>não são alterados</strong>.
+            As não encontradas, as ambíguas e as com conflito de frequência são <strong>ignoradas</strong>.
+          </p>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+            <button onclick="document.getElementById('rota-import-status').style.display='none';ROTA_IMPORT=null;" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">Cancelar</button>
+            <button onclick="aplicarRotaImportada()" ${(!casadas.length||problema)?"disabled":""} style="background:${(!casadas.length||problema)?"var(--card2)":"var(--accent)"};color:${(!casadas.length||problema)?"var(--muted)":"#fff"};border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:${(!casadas.length||problema)?"not-allowed":"pointer"};font-family:var(--font);">Aplicar rota de ${mesesLista[0]||"—"}</button>
+          </div>
+        </div>`;
+    } catch(err) {
+      console.error(err);
+      box.innerHTML = `<div style="color:var(--red);font-size:13px;">Erro ao ler a planilha: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+window.aplicarRotaImportada = async function() {
+  const imp = ROTA_IMPORT;
+  if (!imp || !imp.casadas.length || imp.meses.length !== 1) return;
+  const mes = imp.meses[0];
+  const doMes = (mes === mesRefAtual());
+
+  if (!confirm(`Aplicar a rota de ${mes} com ${imp.casadas.length} loja(s)?\n\nPromotor(es): ${imp.promotores.join(", ")}\n\n`
+    + (doMes
+      ? "É o mês corrente: a rota passa a valer imediatamente e o app dos promotores já reflete a mudança."
+      : `Não é o mês corrente (${mesRefAtual()}): a rota é gravada apenas no histórico de ${mes} e NÃO altera a rota em vigor.`))) return;
+
+  // Monta a nova rota partindo da rota EM VIGOR e substituindo só os promotores da planilha
+  const novo = {};
+  LOJAS_DB.forEach(l => {
+    const semImportados = (l.promotores||[]).filter(p => !imp.promotores.includes(p));
+    novo[l.id] = { promotores: semImportados, freqAtr: semImportados.length ? (l.freqAtr||"") : "" };
+  });
+  imp.casadas.forEach(c => {
+    const alvo = novo[c.lojaId];
+    if (!alvo) return;
+    if (!alvo.promotores.includes(c.prom)) alvo.promotores.push(c.prom);
+    alvo.freqAtr = c.freq; // a frequência da planilha manda
+  });
+
+  const box = document.getElementById("rota-import-status");
+  box.innerHTML = `<div style="font-size:13px;color:var(--muted);">Gravando…</div>`;
+  try {
+    const db = firebase.firestore();
+    // Histórico do mês: só as lojas que ficaram com promotor
+    const snapshot = {};
+    Object.keys(novo).forEach(id => { if (novo[id].promotores.length) snapshot[id] = novo[id]; });
+    await db.collection("config").doc("rota_"+mes).set(snapshot);
+
+    // Mês corrente: também grava nas lojas (é a rota que o app lê)
+    let gravadas = 0;
+    if (doMes) {
+      let batch = db.batch(), n = 0;
+      for (const l of LOJAS_DB) {
+        const alvo = novo[l.id];
+        const mudouProm = JSON.stringify([...(l.promotores||[])].sort()) !== JSON.stringify([...alvo.promotores].sort());
+        const mudouFreq = (l.freqAtr||"") !== (alvo.freqAtr||"");
+        if (!mudouProm && !mudouFreq) continue;
+        batch.update(db.collection("lojas").doc(l.id), { promotores: alvo.promotores, freqAtr: alvo.freqAtr });
+        gravadas++; n++;
+        if (n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
+      }
+      if (n > 0) await batch.commit();
+      LOJAS_DB.forEach(l => { l.promotores = [...novo[l.id].promotores]; l.freqAtr = novo[l.id].freqAtr; });
+      capturarRotaViva();
+    }
+
+    ROTA_IMPORT = null;
+    box.innerHTML = `<div style="border:1px solid var(--green);background:var(--green-lo);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--green);">
+      ✓ Rota de <strong>${mes}</strong> gravada com ${Object.keys(snapshot).length} loja(s).
+      ${doMes ? `<br>${gravadas} loja(s) atualizada(s) na rota em vigor.` : `<br>Guardada só no histórico — não é o mês corrente, a rota em vigor não mudou.`}
+    </div>`;
+    renderCobertura();
+  } catch(e) {
+    console.error(e);
+    box.innerHTML = `<div style="border:1px solid var(--red);background:rgba(229,57,53,.06);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--red);">Erro ao gravar: ${e.message}<br>Nada foi aplicado pela metade no histórico; confira antes de tentar de novo.</div>`;
+  }
+};
+
 /* ─── ALTERAÇÕES PENDENTES (Cobertura) ─── */
 // A tela de Cobertura passou a ACUMULAR alterações em vez de gravar a cada clique: alocar,
 // retirar e mudar frequência entram nesta fila e só vão para o Firestore no botão "Salvar
@@ -3210,13 +3639,19 @@ function lojaEfetiva(loja) {
 
 // Registra o estado desejado. Se voltar a ficar igual ao que está salvo, a pendência sai
 // da fila (evita "1 alteração pendente" quando na prática nada mudou).
-function marcarPendente(lojaId, promotores, freqAtr) {
+// Só atualiza a fila, sem redesenhar. Usado em lote pelo "Desvincular todos": redesenhar
+// a cada loja deixaria a ação inviável com 150+ lojas.
+function definirPendente(lojaId, promotores, freqAtr) {
   const loja = LOJAS_DB.find(l => l.id === lojaId);
   if (!loja) return;
   const mesmosProm = JSON.stringify([...(loja.promotores||[])].sort()) === JSON.stringify([...promotores].sort());
   const mesmaFreq  = (loja.freqAtr||"") === (freqAtr||"");
   if (mesmosProm && mesmaFreq) delete COB_PENDENTES[lojaId];
   else COB_PENDENTES[lojaId] = { promotores, freqAtr: freqAtr||"" };
+}
+
+function marcarPendente(lojaId, promotores, freqAtr) {
+  definirPendente(lojaId, promotores, freqAtr);
   renderBarraPendentes();
   reabrirListaCob();
 }
@@ -3254,6 +3689,7 @@ window.fecharFreqModal = function() {
 };
 
 window.salvarPendentesCobertura = async function() {
+  if (bloqueadoPorHistorico()) return;
   const ids = Object.keys(COB_PENDENTES);
   if (!ids.length) return;
   const btn = document.getElementById("cob-btn-salvar");
@@ -3275,10 +3711,15 @@ window.salvarPendentesCobertura = async function() {
       if (loja) { loja.promotores = COB_PENDENTES[id].promotores; loja.freqAtr = COB_PENDENTES[id].freqAtr||""; }
     });
     COB_PENDENTES = {};
+    // Fotografa a rota do mês corrente. Falha aqui não desfaz a gravação da rota em vigor,
+    // só deixa o histórico daquele mês desatualizado — por isso é aviso, não erro.
+    let avisoSnap = "";
+    try { await salvarSnapshotRota(mesRefAtual()); ROTA_VIVA = null; capturarRotaViva(); }
+    catch(e) { console.warn("Snapshot da rota:", e); avisoSnap = "\n\n⚠ A rota foi salva, mas não foi possível registrar o histórico deste mês."; }
     renderBarraPendentes();
     renderCobertura();
     reabrirListaCob();
-    alert(`✓ Salvo! ${feitas} loja(s) atualizada(s).`);
+    alert(`✓ Salvo! ${feitas} loja(s) atualizada(s).` + avisoSnap);
   } catch(e) {
     console.error(e);
     // A fila NÃO é limpa: nada se perde e salvar de novo é inofensivo (regrava o mesmo valor)
@@ -3389,6 +3830,7 @@ window.abrirListaVisitasAtreladas = function() {
 // Não grava mais direto: pede a frequência (obrigatória) e põe na fila de pendentes.
 window.alocarPromotorLoja = function(lojaId, promotor) {
   if (!promotor) return;
+  if (bloqueadoPorHistorico()) return;
   const loja = LOJAS_DB.find(l => l.id === lojaId);
   if (!loja) return;
   const ef = lojaEfetiva(loja);
@@ -3486,6 +3928,7 @@ window.abrirListaVisitasRealizadas = function() {
 // Também vai para a fila. Sem confirmação: nada é gravado na hora e existe o "Descartar".
 window.desalocarPromotorLoja = function(lojaId, nomePromotor) {
   if (!nomePromotor) return;
+  if (bloqueadoPorHistorico()) return;
   const loja = LOJAS_DB.find(l => l.id === lojaId);
   if (!loja) return;
   const ef = lojaEfetiva(loja);
@@ -3563,6 +4006,7 @@ function selectFreqAtr(loja, handler) {
 // Muda a freq. alocada a partir das listas de Cobertura. Vai para a fila de pendentes —
 // não grava na hora. Loja sem promotor não tem frequência alocada, então é ignorada.
 window.editarFreqAtrLista = function(lojaId, novaFreq) {
+  if (bloqueadoPorHistorico()) { reabrirListaCob(); return; }
   const loja = LOJAS_DB.find(l => l.id === lojaId);
   if (!loja) return;
   const ef = lojaEfetiva(loja);
@@ -3722,7 +4166,10 @@ async function renderRotas() {
   await carregarAlocacoes();
   await carregarRotasStatus();
   await carregarVisitasManuais();
-  renderCobertura();
+  // Reaplica a rota do mês selecionado (e renderiza). Sem isto, voltar para esta aba
+  // depois de o Cadastro recarregar LOJAS_DB mostraria a rota em vigor com o mês
+  // histórico ainda selecionado no filtro.
+  await trocarMesCobertura();
   // Popula promotores
   const sel = document.getElementById("rotas-promotor");
   const atual = sel.value;
@@ -4263,6 +4710,9 @@ async function carregarLojasPromotores() {
     ]);
     LOJAS_DB = lojasSnap.docs.map(d=>({id:d.id, ...d.data()}));
     PROMOTORES_DB = promSnap.docs.map(d=>({id:d.id, ...d.data()}));
+    // Fotografa a rota EM VIGOR. Tem de ser aqui, logo após a leitura do Firestore: em
+    // outro ponto poderíamos fotografar um mês histórico já aplicado na memória.
+    capturarRotaViva();
   } catch(e) { console.warn("Lojas/Promotores:", e); }
 }
 
