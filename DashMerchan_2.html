@@ -1294,6 +1294,8 @@ window.carregarDados = async () => {
 
   calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
   popularFiltroPromotores();
+  // Aviso de virada de mês (só para o usuário responsável, uma vez por mês)
+  verificarViradaDeMes();
 };
 
 function popularFiltroPromotores() {
@@ -3372,6 +3374,187 @@ function renderAvisoMesRota() {
     : `<div style="background:var(--accent-lo);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--accent);"><strong>Rota de ${ROTA_MES_EXIBIDO} — somente leitura.</strong> Você está vendo o histórico. Para editar a rota em vigor, volte o mês de referência para ${mesRefAtual()}.</div>`;
 }
 
+/* ─── VIRADA DE MÊS ───
+   Só este usuário vê o aviso. Se o e-mail estiver diferente, é só trocar aqui. */
+const EMAIL_VIRADA_MES = "thiago.frade@soudobro.com.br";
+let VIRADA_MES = null; // mês sendo decidido no modal
+
+// Coloca a rota REGISTRADA de um mês em vigor: os documentos das lojas passam a refletir
+// exatamente aquele snapshot (inclusive retirando promotor que não está nele).
+// É isso que o app dos promotores lê ao vivo.
+async function aplicarRotaEmVigor(mes) {
+  const snap = await carregarSnapshotRota(mes);
+  if (!snap) throw new Error("Não há rota registrada para " + mes + ".");
+  const db = firebase.firestore();
+  let batch = db.batch(), n = 0, mudadas = 0;
+  for (const l of LOJAS_DB) {
+    const r = snap.lojas[l.id];
+    const proms = r ? (r.promotores||[]) : [];
+    const freq  = r ? (r.freqAtr||"") : "";
+    const mudouP = JSON.stringify([...(l.promotores||[])].sort()) !== JSON.stringify([...proms].sort());
+    const mudouF = (l.freqAtr||"") !== freq;
+    if (!mudouP && !mudouF) continue;
+    batch.update(db.collection("lojas").doc(l.id), { promotores: proms, freqAtr: freq });
+    mudadas++; n++;
+    if (n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
+  }
+  if (n > 0) await batch.commit();
+  LOJAS_DB.forEach(l => {
+    const r = snap.lojas[l.id];
+    l.promotores = r ? [...(r.promotores||[])] : [];
+    l.freqAtr = r ? (r.freqAtr||"") : "";
+  });
+  capturarRotaViva();
+  return mudadas;
+}
+
+// Retira um promotor de todas as lojas (freq. alocada zera nas que ficarem sem ninguém)
+async function desvincularPromotorGeral(nome) {
+  const db = firebase.firestore();
+  let batch = db.batch(), n = 0, mudadas = 0;
+  for (const l of LOJAS_DB) {
+    const atuais = l.promotores || [];
+    if (!atuais.includes(nome)) continue;
+    const restantes = atuais.filter(p => p !== nome);
+    const freq = restantes.length ? (l.freqAtr||"") : "";
+    batch.update(db.collection("lojas").doc(l.id), { promotores: restantes, freqAtr: freq });
+    l.promotores = restantes; l.freqAtr = freq;
+    mudadas++; n++;
+    if (n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
+  }
+  if (n > 0) await batch.commit();
+  return mudadas;
+}
+
+async function verificarViradaDeMes() {
+  if ((USUARIO_EMAIL||"").toLowerCase() !== EMAIL_VIRADA_MES) return;
+  const mes = mesRefAtual();
+  let registro = {};
+  try {
+    const snap = await firebase.firestore().collection("config").doc("rota_virada").get();
+    if (snap.exists) registro = snap.data() || {};
+  } catch(e) { console.warn("Virada:", e); return; }
+  if (registro[mes]) return;                       // já respondido neste mês
+  if (!LOJAS_DB.some(l => (l.promotores||[]).length)) return; // nada alocado, nada a decidir
+  // await obrigatório: abrirViradaModal busca a rota do mês antes de montar o modal.
+  // Sem ele o modal aparecia com a segunda metade em branco.
+  await abrirViradaModal(mes);
+}
+
+window.abrirViradaModal = async function(mes) {
+  VIRADA_MES = mes;
+  const [a,m] = mes.split("-");
+  const nomesMes = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+  document.getElementById("virada-mes").textContent = (nomesMes[parseInt(m,10)-1]||m) + " de " + a;
+
+  // Promotores com loja alocada hoje
+  const cont = {};
+  LOJAS_DB.forEach(l => (l.promotores||[]).forEach(p => { cont[p] = (cont[p]||0)+1; }));
+  const lista = Object.keys(cont).sort((x,y)=>x.localeCompare(y,"pt-BR"));
+  document.getElementById("virada-promotores").innerHTML = lista.length
+    ? lista.map(p => `<label style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" class="virada-prom" value="${String(p).replace(/"/g,"&quot;")}" onchange="avaliarViradaConflito()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
+        <span style="font-weight:600;">${p}</span><span style="color:var(--muted);">${cont[p]} loja(s)</span></label>`).join("")
+    : `<div style="padding:8px;font-size:12px;color:var(--muted);">Nenhum promotor alocado.</div>`;
+
+  // Rota registrada para o mês novo
+  let rota = null;
+  try { rota = await carregarSnapshotRota(mes); } catch(e) {}
+  const boxRota = document.getElementById("virada-rota");
+  if (rota && Object.keys(rota.lojas||{}).length) {
+    const nLojas = Object.keys(rota.lojas).length;
+    const meta = rota.meta || {};
+    const total = meta.totalPlanejadas || Object.values(rota.lojas).reduce((s,r)=>s+(r.planejadas||0),0);
+    boxRota.innerHTML = `<label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" id="virada-aplicar" checked onchange="avaliarViradaConflito()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin-top:2px;">
+        <span><strong>Colocar em vigor a rota de ${mes}</strong>
+        <div style="color:var(--muted);font-size:12px;margin-top:3px;">${nLojas} loja(s)${total?", "+total+" visita(s) planejada(s)":""}${meta.origem==="planilha"?" · importada da planilha":""}${meta.semana1?" · Semana 1 em "+meta.semana1.split("-").reverse().join("/"):""}</div>
+        <div style="color:var(--muted);font-size:11px;margin-top:3px;">As lojas passam a refletir exatamente essa rota — quem não estiver nela fica sem promotor.</div></span>
+      </label>`;
+    VIRADA_ROTA_PROMS = (rota.meta && rota.meta.promotores) ? rota.meta.promotores
+      : [...new Set(Object.values(rota.lojas).flatMap(r => r.promotores||[]))];
+  } else {
+    boxRota.innerHTML = `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:9px;padding:12px 14px;">
+        <div style="font-size:13px;color:var(--yellow);font-weight:700;">Nenhuma rota registrada para ${mes}.</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">Importe a planilha do mês para o dashboard saber quantas visitas foram programadas por semana.</div>
+        <button onclick="irImportarRota()" style="margin-top:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">📤 Importar rota (Excel)</button>
+      </div>`;
+    VIRADA_ROTA_PROMS = [];
+  }
+  avaliarViradaConflito();
+  document.getElementById("virada-modal").style.display = "flex";
+};
+
+let VIRADA_ROTA_PROMS = [];
+
+// Avisa quando desvincular alguém que a rota nova vai realocar: a rota manda por último
+window.avaliarViradaConflito = function() {
+  const marcados = [...document.querySelectorAll(".virada-prom:checked")].map(c => c.value);
+  const aplicar = !!(document.getElementById("virada-aplicar")||{}).checked;
+  const box = document.getElementById("virada-aviso");
+  const conflito = aplicar ? marcados.filter(p => VIRADA_ROTA_PROMS.includes(p)) : [];
+  if (conflito.length) {
+    box.style.display = "block";
+    box.innerHTML = `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.4);border-radius:8px;padding:10px 12px;color:var(--yellow);">
+      <strong>${conflito.join(", ")}</strong> ${conflito.length>1?"estão":"está"} na rota nova. Desvincular e depois colocar a rota em vigor faz ${conflito.length>1?"eles":"ele"} voltar — a rota é aplicada por último.</div>`;
+  } else { box.style.display = "none"; box.innerHTML = ""; }
+};
+
+window.irImportarRota = function() {
+  fecharViradaModal();
+  const el = document.querySelector('.nav-item[onclick*="rotas"]');
+  if (el) el.click();
+  setTimeout(() => {
+    const card = document.getElementById("rota-input");
+    if (card) { card.scrollIntoView({behavior:"smooth", block:"center"}); card.click(); }
+  }, 400);
+};
+
+function fecharViradaModal() {
+  const m = document.getElementById("virada-modal");
+  if (m) m.style.display = "none";
+}
+
+// "Decidir depois": não registra nada, então o aviso volta na próxima abertura
+window.pularVirada = function() { fecharViradaModal(); };
+
+window.salvarVirada = async function() {
+  if (!VIRADA_MES) return;
+  const marcados = [...document.querySelectorAll(".virada-prom:checked")].map(c => c.value);
+  const aplicar = !!(document.getElementById("virada-aplicar")||{}).checked;
+  if (!marcados.length && !aplicar) {
+    if (!confirm("Você não marcou nada. Registrar que a virada de " + VIRADA_MES + " foi revisada e não fazer alteração?")) return;
+  }
+  const btn = document.getElementById("virada-btn-salvar");
+  btn.disabled = true; btn.textContent = "Aplicando…";
+  const resumo = [];
+  try {
+    // 1) Desvincula os marcados
+    for (const p of marcados) {
+      const n = await desvincularPromotorGeral(p);
+      resumo.push(`${p}: retirado de ${n} loja(s)`);
+    }
+    // 2) Depois coloca a rota nova em vigor (a rota manda por último, de propósito)
+    if (aplicar) {
+      const n = await aplicarRotaEmVigor(VIRADA_MES);
+      resumo.push(`rota de ${VIRADA_MES} em vigor: ${n} loja(s) atualizada(s)`);
+    }
+    // 3) Registra a decisão para o aviso não voltar neste mês
+    await firebase.firestore().collection("config").doc("rota_virada").set(
+      { [VIRADA_MES]: { respondidoPor: USUARIO_EMAIL||"", respondidoEm: new Date().toISOString(), desvinculados: marcados, aplicouRota: aplicar } },
+      { merge: true }
+    );
+    fecharViradaModal();
+    renderCobertura();
+    alert("✓ Virada de " + VIRADA_MES + " concluída.\n\n" + (resumo.length ? resumo.join("\n") : "Nenhuma alteração feita."));
+  } catch(e) {
+    console.error(e);
+    alert("Erro ao aplicar: " + (e.message||e) + "\n\nParte pode ter sido gravada. Confira a tela de Cobertura antes de tentar de novo.");
+  } finally {
+    btn.disabled = false; btn.textContent = "Aplicar";
+  }
+};
+
 /* ─── REGISTRAR / IMPORTAR ROTA DO MÊS ─── */
 
 // Fotografa a alocação EM VIGOR para o mês escolhido, sem precisar editar nada. Serve para
@@ -4487,25 +4670,70 @@ window.exportarBookFotos = async function() {
   const util = pw - margin*2;
   const fmtBR = s => s ? s.split("-").reverse().join("/") : "";
 
-  /* ── Números do quadro de cobertura ──
-     PROGRAMADAS NA SEMANA: soma das lojas atreladas ao promotor pela frequência ALOCADA,
-     contando 1 para Semanal, 0,5 para Quinzenal e 0,25 para Mensal — ou seja,
-     visitasNecessariasMes/4, já que o sistema define Semanal como 4 visitas/mês.
-     É a conta que corresponde a "uma visita por semana na loja semanal", e é auditável
-     loja a loja. NÃO usa divisão por dias do mês. */
-  const lojasDoRelatorio = LOJAS_DB.filter(l => {
-    const proms = l.promotores || [];
-    if (!proms.length) return false;
-    if (f.prom && !proms.includes(f.prom)) return false;
-    if (redeFiltro && (l.canal||"") !== redeFiltro) return false;
-    return true;
-  });
-  let programadas = 0;
-  lojasDoRelatorio.forEach(l => {
-    const fa = freqAlocada(l);
-    if (fa) programadas += visitasNecessariasMes(fa) / 4;
-  });
-  programadas = Math.round(programadas);
+  /* ── PROGRAMADAS ──
+     Vem da ROTA do mês, que guarda quantas visitas cada loja tem em CADA SEMANA (importada
+     da planilha). O período do relatório é quinta a quinta e as semanas da rota são segunda
+     a sábado, então elas se sobrepõem parcialmente: rateamos pelos dias ÚTEIS de
+     sobreposição (domingo não conta). É o número da rota, não uma estimativa.
+     Sem rota importada para o mês, cai na conta antiga (frequência ÷ 4) e o PDF avisa. */
+  const mesRel = String(f.fim || f.ini || "").slice(0,7);
+  let rotaRel = null;
+  try { if (mesRel) rotaRel = await carregarSnapshotRota(mesRel); }
+  catch(e) { console.warn("Rota do relatório:", e); }
+
+  const diasUteis = (a, b) => {
+    let n = 0; const d = new Date(a+"T12:00:00"), fim = new Date(b+"T12:00:00");
+    if (isNaN(d) || isNaN(fim)) return 0;
+    while (d <= fim) { if (d.getDay() !== 0) n++; d.setDate(d.getDate()+1); }
+    return n;
+  };
+
+  let programadas = 0, origemProgramadas = "", lojasNaRota = 0, estimado = false;
+  const temSemanas = !!(rotaRel && rotaRel.meta && rotaRel.meta.semana1 && rotaRel.meta.blocos);
+  if (temSemanas) {
+    const blocos = rotaRel.meta.blocos;
+    const porSemana = new Array(blocos).fill(0);
+    Object.values(rotaRel.lojas||{}).forEach(r => {
+      if (f.prom && !((r.promotores||[]).includes(f.prom))) return;
+      lojasNaRota++;
+      (r.semanas||[]).forEach((q,i) => { if (i < blocos) porSemana[i] += (q||0); });
+    });
+    if (f.ini && f.fim) {
+      const detalhe = [];
+      for (let n = 1; n <= blocos; n++) {
+        const fx = faixaSemanaRota(rotaRel.meta.semana1, n);
+        if (!fx) continue;
+        const ini = fx.ini > f.ini ? fx.ini : f.ini;
+        const fim = fx.fim < f.fim ? fx.fim : f.fim;
+        if (ini > fim) continue;                       // semana fora do período
+        const d = diasUteis(ini, fim);
+        if (!d) continue;
+        programadas += porSemana[n-1] * d / 6;         // 6 dias úteis por semana da rota
+        detalhe.push("Semana " + n + " (" + d + " de 6 dias): " + porSemana[n-1] + " visitas");
+      }
+      programadas = Math.round(programadas);
+      origemProgramadas = "Rota de " + mesRel + ", rateada pelos dias úteis do período — " + (detalhe.join("; ") || "nenhuma semana da rota cai neste período");
+    } else {
+      programadas = porSemana.reduce((s,v)=>s+v, 0);
+      origemProgramadas = "Rota de " + mesRel + ", mês inteiro (o relatório está sem filtro de data).";
+    }
+  } else {
+    estimado = true;
+    const lojasEst = LOJAS_DB.filter(l => {
+      const proms = l.promotores || [];
+      if (!proms.length) return false;
+      if (f.prom && !proms.includes(f.prom)) return false;
+      if (redeFiltro && (l.canal||"") !== redeFiltro) return false;
+      return true;
+    });
+    lojasEst.forEach(l => { const fa = freqAlocada(l); if (fa) programadas += visitasNecessariasMes(fa)/4; });
+    programadas = Math.round(programadas);
+    lojasNaRota = lojasEst.length;
+    origemProgramadas = "ESTIMATIVA — " + (mesRel
+      ? ("não há rota importada para " + mesRel + ".")
+      : "sem filtro de data não é possível saber de que mês é a rota; preencha o período em Relatórios.")
+      + " Calculado pela frequência alocada dividida por 4, o que supõe 4 semanas no mês.";
+  }
   // Realizadas = todas as visitas do período (com ou sem foto). Visitas marcadas à mão
   // ficam de fora de propósito: elas são gravadas no dia 15 do mês, não no dia real.
   const realizadas = visitas.length;
@@ -4597,7 +4825,13 @@ window.exportarBookFotos = async function() {
   pdf.setFillColor(228,232,240); pdf.rect(margin, cursorY, util, 5, "F");
   if (perc > 0) { pdf.setFillColor(...(perc>=80?VERDE:(perc>=50?AMAR:VERM))); pdf.rect(margin, cursorY, util*Math.min(perc,100)/100, 5, "F"); }
   cursorY += 5;
-  cursorY = nota(cursorY, "Programadas: soma das " + lojasDoRelatorio.length + " loja(s) atrelada(s) pela frequência alocada — Semanal conta 1 na semana, Quinzenal 0,5 e Mensal 0,25. Visitas marcadas manualmente não entram em Realizadas.");
+  cursorY = nota(cursorY, "Programadas — " + origemProgramadas + " (" + lojasNaRota + " loja(s)). Visitas marcadas manualmente não entram em Realizadas.");
+  if (estimado) {
+    pdf.setFont("helvetica","bold"); pdf.setFontSize(7.5); pdf.setTextColor(...AMAR);
+    pdf.text("Atencao: numero estimado. Importe a rota do mes para o valor exato.", margin, cursorY+3);
+    pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
+    cursorY += 4;
+  }
 
   cursorY += 5;
   cursorY = secao(cursorY, "Vencimentos encontrados no período");
@@ -5702,6 +5936,33 @@ window.executarExclusao = async function() {
   <span id="cob-pendentes-txt" style="font-size:13px;color:var(--text);"></span>
   <button onclick="descartarPendentesCobertura()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">Descartar</button>
   <button id="cob-btn-salvar" onclick="salvarPendentesCobertura()" style="margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 22px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">💾 Salvar alterações</button>
+</div>
+
+<!-- Virada de mês: aparece para o usuário responsável quando o mês muda e a decisão de
+     rota ainda não foi tomada. Some depois de respondido (registro em config/rota_virada). -->
+<div id="virada-modal" style="display:none;position:fixed;inset:0;z-index:1060;background:rgba(0,0,0,.55);align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px;">
+  <div style="background:var(--card);border-radius:14px;padding:24px;max-width:620px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.3);">
+    <h3 style="font-size:17px;font-weight:700;">Virou o mês — <span id="virada-mes"></span></h3>
+    <p style="font-size:13px;color:var(--muted);margin-top:4px;">Decida o que fazer com a rota antes de começar o mês.</p>
+
+    <div style="margin-top:20px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:8px;">1 · Desvincular a rota de quais promotores?</div>
+      <div id="virada-promotores" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:6px;"></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:6px;">Quem for marcado sai de todas as lojas e a frequência alocada dessas lojas volta para "não visita".</p>
+    </div>
+
+    <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--border);">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:8px;">2 · Rota do mês novo</div>
+      <div id="virada-rota"></div>
+    </div>
+
+    <div id="virada-aviso" style="display:none;margin-top:14px;font-size:12px;"></div>
+
+    <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;">
+      <button onclick="pularVirada()" style="flex:1;min-width:120px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:9px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">Decidir depois</button>
+      <button id="virada-btn-salvar" onclick="salvarVirada()" style="flex:2;min-width:160px;background:var(--accent);color:#fff;border:none;border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">Aplicar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Menu "⋯" de cada visita. Fica em position:fixed fora da tabela para não ser cortado
