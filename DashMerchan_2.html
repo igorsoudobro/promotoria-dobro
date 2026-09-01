@@ -720,12 +720,28 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
             <input type="text" id="loja-bairro" placeholder="Ex: Santos" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none;">
           </div>
           <div>
-            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Frequência</label>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Frequência ideal</label>
             <select id="loja-freq" class="filter-select" style="width:100%;">
               <option value="">—</option>
               <option value="Semanal">Semanal</option>
               <option value="Quinzenal">Quinzenal</option>
               <option value="Mensal">Mensal</option>
+            </select>
+            <p style="font-size:11px;color:var(--muted);margin-top:5px;">Meta do canal. A frequência alocada ao promotor é definida na tela de Cobertura.</p>
+          </div>
+          <!-- Rede/Canal e UF: sem eles a loja nova ficava fora dos filtros de Rede e de
+               Estado do dashboard, e fora do casamento por canal do Book/Relatório. -->
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal *</label>
+            <select id="loja-canal" class="filter-select" style="width:100%;" onchange="alternarNovaRede()">
+              <option value="">— selecione —</option>
+            </select>
+            <input type="text" id="loja-canal-nova" placeholder="Nome da nova rede (ex: Muffato)" style="display:none;width:100%;margin-top:8px;background:var(--card2);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none;">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Estado (UF)</label>
+            <select id="loja-uf" class="filter-select" style="width:100%;">
+              <option value="">—</option>
             </select>
           </div>
         </div>
@@ -5096,9 +5112,34 @@ window.exportarBaseLojas = function() {
 
 window.abrirFormLoja = function() {
   document.getElementById("form-loja").style.display = "block";
-  ["loja-nome","loja-rua","loja-numero","loja-bairro"].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
+  ["loja-nome","loja-rua","loja-numero","loja-bairro","loja-canal-nova"].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
   document.getElementById("loja-freq").value = "";
+
+  // Redes já existentes na base + a opção de criar uma nova
+  const canais = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  const selC = document.getElementById("loja-canal");
+  selC.innerHTML = `<option value="">— selecione —</option>`
+    + canais.map(c=>`<option value="${String(c).replace(/"/g,"&quot;")}">${c}</option>`).join("")
+    + `<option value="__NOVA__">➕ Criar nova rede…</option>`;
+  selC.value = "";
+  document.getElementById("loja-canal-nova").style.display = "none";
+
+  // Lista COMPLETA de UFs, sempre. Montar só com as UFs já presentes na base impedia
+  // cadastrar a primeira loja de um estado novo (ex: primeira Muffato no PR).
+  const ufs = ["AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT","PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"];
+  const selU = document.getElementById("loja-uf");
+  selU.innerHTML = `<option value="">—</option>` + ufs.map(u=>`<option value="${u}">${u}</option>`).join("");
+  selU.value = "";
+
   document.getElementById("form-loja").scrollIntoView({behavior:"smooth", block:"nearest"});
+};
+
+window.alternarNovaRede = function() {
+  const sel = document.getElementById("loja-canal");
+  const inp = document.getElementById("loja-canal-nova");
+  const nova = sel.value === "__NOVA__";
+  inp.style.display = nova ? "block" : "none";
+  if (nova) inp.focus(); else inp.value = "";
 };
 
 window.fecharFormLoja = function() {
@@ -5111,10 +5152,27 @@ window.salvarLojaManual = async function() {
   const numero = document.getElementById("loja-numero").value.trim();
   const bairro = document.getElementById("loja-bairro").value.trim();
   const freq = document.getElementById("loja-freq").value;
+  const uf = document.getElementById("loja-uf").value;
+  const selCanal = document.getElementById("loja-canal").value;
 
   if (!nome) { alert("Informe o nome da loja."); return; }
   if (!rua) { alert("Informe o endereço (rua)."); return; }
   if (!numero) { alert("Informe o número."); return; }
+  if (!selCanal) { alert("Selecione a rede/canal, ou crie uma nova.\n\nSem rede, a loja não aparece nos filtros de Rede do dashboard."); return; }
+
+  // Rede: existente ou nova. Se o nome digitado já existir (só diferindo em caixa ou
+  // acento), reaproveita a grafia da base — evita criar "muffato" ao lado de "Muffato".
+  let canal = selCanal;
+  if (selCanal === "__NOVA__") {
+    canal = document.getElementById("loja-canal-nova").value.trim();
+    if (!canal) { alert("Digite o nome da nova rede."); return; }
+    const chave = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+    const existente = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].find(c => chave(c) === chave(canal));
+    if (existente && existente !== canal) {
+      if (!confirm(`A rede "${existente}" já existe na base.\n\nUsar "${existente}" em vez de criar "${canal}"?`)) return;
+      canal = existente;
+    }
+  }
 
   // Monta endereço: "Rua, Número - Bairro"
   let ende = rua + ", " + numero;
@@ -5123,7 +5181,7 @@ window.salvarLojaManual = async function() {
   try {
     const db = firebase.firestore();
     const docRef = db.collection("lojas").doc();
-    const nova = { nome, ende, cep:"", freq, promotores:[] };
+    const nova = { nome, ende, cep:"", freq, canal, uf, promotores:[] };
     await docRef.set(nova);
     LOJAS_DB.push({ id: docRef.id, ...nova });
     fecharFormLoja();
