@@ -3050,19 +3050,13 @@ window.buscarLojaVisitas = function(valor) {
   if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
 };
 
-function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
-  const cont = document.getElementById("cob-visitas-promotor");
-  if (!cont) return;
-  _VPP_ARGS = [fProm, fUF, fCanal, mes, lojasAtreladas]; // para a busca re-renderizar
+// Monta as linhas da lista "Visitas de <promotor>" — uma por loja atrelada, já com as
+// visitas do app + manuais contadas. Extraído de renderVisitasPorPromotor para o
+// "Exportar" usar EXATAMENTE os mesmos números que estão na tela, sem duplicar a regra.
+function linhasVisitasPromotor(fProm, mes, lojasAtreladas) {
   const todos = (fProm === "__TODOS__");
-  if (!fProm) {
-    cont.innerHTML = `<div style="background:var(--card2);border:1px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--muted);font-size:13px;">Filtre por um promotor acima para ver e marcar as visitas loja a loja.</div>`;
-    return;
-  }
-  function noMes(d){ if(!mes) return true; if(!d) return false; return d.startsWith(mes); }
-
-  // Para cada loja atrelada, conta visitas do app + manuais (agora com quantidade)
-  const linhas = lojasAtreladas.map((l, idx) => {
+  const noMes = d => { if(!mes) return true; if(!d) return false; return d.startsWith(mes); };
+  return (lojasAtreladas||[]).map((l, idx) => {
     const chaveLoja = chaveLojaCob(l.nome, l.ende);
     // Sob "Todos", uma loja pode ter vários promotores; a marcação manual usa o primeiro
     const promRef = todos ? ((l.promotores||[])[0] || "") : fProm;
@@ -3077,8 +3071,28 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
     const totalFeitas = visitasApp.length + qtdManual;
     const feita = totalFeitas > 0;
     const datas = visitasApp.map(v=>v.data);
-    return { loja:l, chaveManual, idx, feita, qtdManual, totalFeitas, datas, atrelada };
+    return { loja:l, promRef, chaveManual, idx, feita, qtdManual, totalFeitas, visitasApp:visitasApp.length, datas, atrelada };
   });
+}
+
+// Aplica a busca digitada no campo "Buscar loja" às linhas da lista
+function filtrarPorBuscaLoja(linhas) {
+  const q = COB_BUSCA_LOJA.toLowerCase().trim();
+  return q ? linhas.filter(l => ((l.loja.nome||"") + " " + (l.loja.ende||"")).toLowerCase().includes(q)) : linhas.slice();
+}
+
+function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
+  const cont = document.getElementById("cob-visitas-promotor");
+  if (!cont) return;
+  _VPP_ARGS = [fProm, fUF, fCanal, mes, lojasAtreladas]; // para a busca re-renderizar
+  const todos = (fProm === "__TODOS__");
+  if (!fProm) {
+    cont.innerHTML = `<div style="background:var(--card2);border:1px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--muted);font-size:13px;">Filtre por um promotor acima para ver e marcar as visitas loja a loja.</div>`;
+    return;
+  }
+
+  // Para cada loja atrelada, conta visitas do app + manuais (agora com quantidade)
+  const linhas = linhasVisitasPromotor(fProm, mes, lojasAtreladas);
 
   // Os contadores usam o total do promotor no mês, não o resultado da busca: são o resumo
   // do mês e não devem mudar conforme você digita.
@@ -3086,16 +3100,15 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
   const naoFeitas = linhas.length - feitas;
 
   const q = COB_BUSCA_LOJA.toLowerCase().trim();
-  const linhasVis = q
-    ? linhas.filter(l => ((l.loja.nome||"") + " " + (l.loja.ende||"")).toLowerCase().includes(q))
-    : linhas.slice();
+  const linhasVis = filtrarPorBuscaLoja(linhas);
 
   let html = `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
       <h3 style="font-size:15px;font-weight:700;">Visitas de ${todos ? "todos os promotores" : fProm} ${mes?("· "+mes):""}</h3>
-      <div style="display:flex;gap:16px;font-size:13px;">
+      <div style="display:flex;gap:16px;font-size:13px;align-items:center;">
         <span style="color:var(--green);font-weight:700;">✓ ${feitas} lojas visitadas</span>
         <span style="color:var(--red);font-weight:700;">○ ${naoFeitas} sem visita</span>
+        <button onclick="exportarVisitasAtreladas()" title="Exporta em Excel as lojas atreladas exatamente como estão nesta lista (promotor, Estado, Rede e busca aplicados)" style="background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;">📤 Exportar</button>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3137,6 +3150,64 @@ function renderVisitasPorPromotor(fProm, fUF, fCanal, mes, lojasAtreladas) {
   </div>`;
   cont.innerHTML = html;
 }
+
+// Exporta em Excel as lojas atreladas da lista "Visitas de <promotor>", com os MESMOS
+// filtros da tela (promotor da seção de baixo, Estado, Rede e a busca digitada). As linhas
+// são as mesmas da tela — só a ordem muda, aqui vem alfabética por loja.
+window.exportarVisitasAtreladas = function() {
+  if (!_VPP_ARGS) { alert("Filtre por um promotor para exportar as lojas atreladas."); return; }
+  const [fProm, fUF, fCanal, mes, lojasAtreladas] = _VPP_ARGS;
+  if (!fProm) { alert("Filtre por um promotor para exportar as lojas atreladas."); return; }
+
+  const todos = (fProm === "__TODOS__");
+  const linhas = filtrarPorBuscaLoja(linhasVisitasPromotor(fProm, mes, lojasAtreladas));
+  if (!linhas.length) { alert("Nenhuma loja no filtro atual para exportar."); return; }
+  linhas.sort((a,b) => (a.loja.nome||"").localeCompare(b.loja.nome||"", "pt-BR"));
+
+  const dataBR = d => d ? new Date(d+"T12:00:00").toLocaleDateString("pt-BR") : "";
+  const dados = linhas.map(l => {
+    const loja = l.loja;
+    const falta = Math.max(0, l.atrelada - l.totalFeitas);
+    return {
+      Promotor: todos ? (loja.promotores||[]).join(", ") : fProm,
+      Loja: loja.nome || "",
+      Endereço: loja.ende || "",
+      Estado: loja.uf || "",
+      Rede: loja.canal || "",
+      "Frequência ideal": loja.freq || "",
+      "Frequência alocada": loja.freqAtr || "",
+      "Visitas atreladas/mês": l.atrelada,
+      Realizadas: l.totalFeitas,
+      "Pelo app": l.visitasApp,
+      Manuais: l.qtdManual,
+      Faltam: falta,
+      Situação: l.totalFeitas >= l.atrelada ? "Completa" : (l.feita ? "Parcial" : "Sem visita"),
+      "Datas (app)": l.datas.map(dataBR).join(", "),
+      "Mês de referência": mes || "todos os meses"
+    };
+  });
+
+  // Segunda aba com o filtro usado — para o arquivo se explicar sozinho quando circular
+  const somaAtr = dados.reduce((s,d)=>s+d["Visitas atreladas/mês"],0);
+  const somaReal = dados.reduce((s,d)=>s+d.Realizadas,0);
+  const filtros = [
+    { Filtro:"Promotor", Valor: todos ? "Todos os promotores" : fProm },
+    { Filtro:"Mês de referência", Valor: mes || "todos os meses" },
+    { Filtro:"Estado", Valor: fUF || "Todos" },
+    { Filtro:"Rede", Valor: (COB_FILTRO.fRedes && COB_FILTRO.fRedes.length) ? COB_FILTRO.fRedes.join(", ") : "Todas" },
+    { Filtro:"Busca por loja", Valor: COB_BUSCA_LOJA.trim() || "(vazia)" },
+    { Filtro:"Lojas exportadas", Valor: dados.length },
+    { Filtro:"Visitas atreladas (soma)", Valor: somaAtr },
+    { Filtro:"Visitas realizadas (soma)", Valor: somaReal },
+    { Filtro:"Extraído em", Valor: new Date().toLocaleString("pt-BR") }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), "Lojas atreladas");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filtros), "Filtros");
+  const alvo = (todos ? "Todos" : fProm).replace(/[^\wÀ-ÿ]+/g,"_");
+  XLSX.writeFile(wb, `Lojas_atreladas_${alvo}_${mes || "todos"}.xlsx`);
+};
 
 // Conjunto de lojas de uma lista de cobertura, já com filtro de Estado/Rede/Promotor e a
 // busca digitada aplicados. Extraído de abrirListaCobertura para o "Desvincular todos"
