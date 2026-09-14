@@ -883,31 +883,75 @@ const CATALOGO_BASE = JSON.parse(JSON.stringify(CATALOGO)); // cópia fixa do or
 // - categorias_desativadas: some do app
 // - skus_extras: SKUs adicionados pelo dash (por categoria)
 // - skus_removidos: SKUs desativados (lista de códigos sku)
+// - skus_restritos: SKU que só aparece em lojas específicas (packs negociados com um
+//   cliente). Por isso a montagem do catálogo ficou separada da leitura: a config chega
+//   na abertura do app, mas a loja só é escolhida depois — e é ela que decide o que entra.
+let CFG_CATALOGO = null; // config crua do Firestore, guardada para remontar por loja
+
 async function carregarCatalogoConfig() {
   if (!FB_OK) return;
   try {
     initFirebase();
     const snap = await firebase.firestore().collection("config").doc("catalogo").get();
     if (!snap.exists) return; // sem modificações: usa o catálogo base
-    const cfg = snap.data() || {};
-    const desativadas = new Set(cfg.categorias_desativadas || []);
-    const skusRemovidos = new Set(cfg.skus_removidos || []);
-    const skusExtras = cfg.skus_extras || {};
-    const catsNovas = cfg.categorias_novas || [];
-
-    // Reconstrói CATEGORIAS: base (sem desativadas) + novas
-    CATEGORIAS = CATEGORIAS_BASE.filter(c => !desativadas.has(c));
-    catsNovas.forEach(c => { if (!desativadas.has(c) && !CATEGORIAS.includes(c)) CATEGORIAS.push(c); });
-
-    // Reconstrói CATALOGO: base + extras, menos SKUs removidos
-    const novo = {};
-    CATEGORIAS.forEach(cat => {
-      const base = (CATALOGO_BASE[cat] || []).filter(p => !skusRemovidos.has(p.sku));
-      const extras = (skusExtras[cat] || []).filter(p => !skusRemovidos.has(p.sku));
-      novo[cat] = [...base, ...extras];
-    });
-    CATALOGO = novo;
+    CFG_CATALOGO = snap.data() || {};
+    montarCatalogo(S.lojaId);
   } catch(e) { console.warn("Catálogo config:", e); }
+}
+
+// Monta CATEGORIAS e CATALOGO para uma loja. Sem loja (ou loja fora do roteiro), SKU
+// restrito NÃO entra: liberar por padrão mostraria pack de um cliente para todo mundo.
+function montarCatalogo(lojaId) {
+  const cfg = CFG_CATALOGO;
+  if (!cfg) return; // sem config: catálogo base, como antes
+  const desativadas = new Set(cfg.categorias_desativadas || []);
+  const skusRemovidos = new Set(cfg.skus_removidos || []);
+  const skusExtras = cfg.skus_extras || {};
+  const catsNovas = cfg.categorias_novas || [];
+  const restritos = Array.isArray(cfg.skus_restritos) ? cfg.skus_restritos : [];
+
+  const mapaRestr = {};
+  restritos.forEach(r => { if (r && r.sku) mapaRestr[r.sku] = r.lojas || []; });
+  const liberado = sku => {
+    const lojas = mapaRestr[sku];
+    if (!lojas) return true;               // SKU sem restrição: todas as lojas
+    return !!lojaId && lojas.includes(lojaId);
+  };
+
+  // Reconstrói CATEGORIAS: base (sem desativadas) + novas
+  CATEGORIAS = CATEGORIAS_BASE.filter(c => !desativadas.has(c));
+  catsNovas.forEach(c => { if (!desativadas.has(c) && !CATEGORIAS.includes(c)) CATEGORIAS.push(c); });
+
+  // Reconstrói CATALOGO: base + extras, menos SKUs removidos e menos os restritos a outras lojas
+  const novo = {};
+  const vaziasPorRestricao = [];
+  CATEGORIAS.forEach(cat => {
+    const base = (CATALOGO_BASE[cat] || []).filter(p => !skusRemovidos.has(p.sku));
+    const extras = (skusExtras[cat] || []).filter(p => !skusRemovidos.has(p.sku));
+    const todos = [...base, ...extras];
+    const visiveis = todos.filter(p => liberado(p.sku));
+    // Categoria que existia só por causa de SKU restrito some inteira nesta loja (ex:
+    // "PACKS DO SAMS" fora do SAMS). Categoria já vazia antes continua aparecendo, como antes.
+    if (todos.length && !visiveis.length) { vaziasPorRestricao.push(cat); return; }
+    novo[cat] = visiveis;
+  });
+  CATEGORIAS = CATEGORIAS.filter(c => !vaziasPorRestricao.includes(c));
+  CATALOGO = novo;
+}
+
+// Descarta o que o promotor já tinha preenchido para categorias/SKUs que sumiram ao
+// trocar de loja — senão a visita subiria com preço de uma categoria que não existe nela.
+function limparDadosForaDoCatalogo() {
+  const catsOk = new Set(Object.keys(CATALOGO));
+  const skusOk = new Set();
+  Object.values(CATALOGO).forEach(arr => (arr||[]).forEach(p => skusOk.add(p.sku)));
+  let removidos = 0;
+  Object.keys(S.precos).forEach(cat => { if (!catsOk.has(cat)) { delete S.precos[cat]; removidos++; } });
+  const est = S.estoque.length, prod = S.produtos.length;
+  S.estoque  = S.estoque.filter(e => skusOk.has(e.sku));
+  S.produtos = S.produtos.filter(p => skusOk.has(p.sku));
+  removidos += (est - S.estoque.length) + (prod - S.produtos.length);
+  return removidos;
 }
 
 /* ─── LOJAS ─── */
@@ -941,7 +985,7 @@ let PRECOS_TOLERANCIA = {};         // % por categoria, carregado do Firestore
 
 /* ─── ESTADO ─── */
 let S = {
-  promotor:"", loja:"", lojaEnde:"", data:"", obsInicial:"", obsFinal:"",
+  promotor:"", loja:"", lojaEnde:"", lojaId:"", data:"", obsInicial:"", obsFinal:"",
   statusValidade: null, // true/false
   mpdv: null,
   horaInicio: null,
@@ -1300,6 +1344,7 @@ window.avancarIdentificacao = function() {
 
   if (S.foraRoteiro) {
     S.loja = S.lojaCustom?.trim() ? "⚠️ Fora do roteiro: " + S.lojaCustom.trim() : "";
+    S.lojaId = ""; // loja digitada não está na base: não libera SKU restrito
   }
   S.promotor   = promotor;
   S.data       = data;
@@ -1308,6 +1353,13 @@ window.avancarIdentificacao = function() {
   if (!promotor) { toast("Selecione o promotor","err"); return; }
   if (!S.loja)  { toast("Selecione a loja","err"); return; }
   if (!data)    { toast("Selecione a data","err"); return; }
+
+  // Remonta o catálogo para ESTA loja: SKU restrito (pack de cliente) só entra aqui.
+  // Fica neste ponto porque é o último momento antes das telas que usam o catálogo,
+  // e cobre também quem voltou e trocou de loja no meio do preenchimento.
+  montarCatalogo(S.lojaId);
+  const perdidos = limparDadosForaDoCatalogo();
+  if (perdidos) toast(`${perdidos} item(ns) não valem para esta loja e foram retirados`, "err");
 
   avancarTela("screen-0");
 };
@@ -1343,11 +1395,13 @@ window.filtrarLojas = function(termo) {
 };
 window.selecionarLojaIdx = function(i) {
   const l = LOJAS_FILTRADAS[i];
-  if (l) selecionarLoja(l.nome, l.ende||"");
+  // O id vem junto: é ele que decide quais SKUs restritos (packs) esta loja enxerga
+  if (l) selecionarLoja(l.nome, l.ende||"", l.id||"");
 };
-window.selecionarLoja = function(nome,ende) {
+window.selecionarLoja = function(nome,ende,id) {
   S.loja = nome;
   S.lojaEnde = ende || "";
+  S.lojaId = id || "";
   document.getElementById("loja-busca").value = nome;
   document.getElementById("loja-dropdown").style.display="none";
   const sel = document.getElementById("loja-selecionada");
@@ -1359,7 +1413,7 @@ window.mostrarDropdown = function() {
   if (t.length>0) filtrarLojas(t);
 };
 window.limparLoja = function() {
-  S.loja=""; S.lojaEnde="";
+  S.loja=""; S.lojaEnde=""; S.lojaId="";
   document.getElementById("loja-busca").value="";
   document.getElementById("loja-selecionada").style.display="none";
   document.getElementById("loja-dropdown").style.display="none";
@@ -2042,10 +2096,11 @@ window.proximaLoja = function() {
 };
 
 function reset() {
-  S={promotor:"",loja:"",lojaEnde:"",data:"",obsInicial:"",obsFinal:"",statusValidade:null,mpdv:null,horaInicio:null,
+  S={promotor:"",loja:"",lojaEnde:"",lojaId:"",data:"",obsInicial:"",obsFinal:"",statusValidade:null,mpdv:null,horaInicio:null,
      produtos:[],estoque:[],fotosAntes:[],fotosDepois:[],fotosMpdv:[],fotosValidade:[],precos:{},
      foraRoteiro:false,lojaCustom:""};
   catAtiva=null; catAtivaEstoque=null;
+  montarCatalogo(""); // volta ao catálogo sem loja: SKU restrito sai da tela
   try { document.getElementById("promotor-select").value=""; } catch(e){}
   try { document.getElementById("loja-busca").value=""; document.getElementById("loja-selecionada").style.display="none"; S.loja=""; } catch(e){}
   try { document.getElementById("obs-inicial").value=""; } catch(e){}

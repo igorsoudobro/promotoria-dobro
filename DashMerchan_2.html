@@ -1908,7 +1908,13 @@ function categoriasAtivas() {
   const novas = (CATALOGO_CFG.categorias_novas || []).filter(c => !desativadas.has(c) && !base.includes(c));
   return [...base, ...novas];
 }
-let CATALOGO_CFG = { categorias_desativadas:[], skus_removidos:[], skus_extras:{}, categorias_novas:[] };
+// skus_restritos: SKU que só aparece no app em lojas específicas (ex: packs negociados
+// com uma rede). É uma LISTA de { sku, lojas:[id] }, não um mapa com o SKU na chave:
+// código de SKU tem ponto e barra ("...-12X3.5", ".../FRT-..."), que no Firestore viram
+// separador de caminho de campo e quebrariam a gravação. SKU ausente da lista = liberado
+// para todas as lojas. As lojas são guardadas por ID do documento, não por nome: nome e
+// endereço mudam de grafia e a restrição se perderia calada.
+let CATALOGO_CFG = { categorias_desativadas:[], skus_removidos:[], skus_extras:{}, categorias_novas:[], skus_restritos:[] };
 
 async function carregarCatalogoCfg() {
   try {
@@ -1919,10 +1925,17 @@ async function carregarCatalogoCfg() {
         categorias_desativadas: d.categorias_desativadas || [],
         skus_removidos: d.skus_removidos || [],
         skus_extras: d.skus_extras || {},
-        categorias_novas: d.categorias_novas || []
+        categorias_novas: d.categorias_novas || [],
+        skus_restritos: Array.isArray(d.skus_restritos) ? d.skus_restritos : []
       };
     }
   } catch(e) { console.warn("Catálogo cfg:", e); }
+}
+
+// Lojas liberadas para um SKU: array de IDs, ou null quando o SKU não tem restrição
+function restricaoDoSku(sku) {
+  const r = (CATALOGO_CFG.skus_restritos || []).find(x => x && x.sku === sku);
+  return r ? (r.lojas || []) : null;
 }
 
 async function salvarCatalogoCfg() {
@@ -1943,6 +1956,7 @@ async function renderCatalogo() {
 
   const desativadas = new Set(CATALOGO_CFG.categorias_desativadas);
   const skusRemovidos = new Set(CATALOGO_CFG.skus_removidos);
+  _CAT_SKUS = []; // registro dos SKUs desenhados, para os botões referenciarem por índice
 
   // Categorias = base + novas
   const cats = [...CATEGORIAS_DOBRO, ...(CATALOGO_CFG.categorias_novas||[])];
@@ -1976,14 +1990,25 @@ async function renderCatalogo() {
     skus.forEach(p => {
       const removido = skusRemovidos.has(p.sku);
       const skuEsc = p.sku.replace(/'/g,"\\'");
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);${removido?"opacity:.45;":""}">
+      // Índice em vez de interpolar o SKU no onclick: código de SKU tem barra e ponto
+      const iSku = _CAT_SKUS.length;
+      _CAT_SKUS.push({ sku:p.sku, desc:p.desc, cat });
+      const lojasSku = restricaoDoSku(p.sku);
+      const restrito = Array.isArray(lojasSku);
+      const btnLojas = restrito
+        ? `<button onclick="abrirLojasSku(${iSku})" title="Só estas lojas veem este SKU no app" style="background:var(--accent-lo);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">🔒 ${lojasSku.length} loja${lojasSku.length!==1?"s":""}</button>`
+        : `<button onclick="abrirLojasSku(${iSku})" title="Visível em todas as lojas — clique para restringir a lojas específicas" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">Todas as lojas</button>`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);${removido?"opacity:.45;":""}">
         <div style="font-size:13px;${removido?"text-decoration:line-through;":""}">
           <span style="font-weight:600;">${p.desc}</span>
           <span style="color:var(--muted);font-size:11px;margin-left:6px;">${p.sku}</span>
         </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+        ${removido ? "" : btnLojas}
         ${removido
           ? `<button onclick="reativarSku('${skuEsc}')" style="background:var(--green-lo);border:1px solid var(--green);color:var(--green);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);">Reativar</button>`
           : `<button onclick="removerSku('${skuEsc}')" style="background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);">Descadastrar</button>`}
+        </div>
       </div>`;
     });
 
@@ -1999,6 +2024,143 @@ async function renderCatalogo() {
 
   cont.innerHTML = html;
 }
+
+/* ─── RESTRIÇÃO DE SKU POR LOJA ───
+   Packs são negociados com clientes específicos: o SKU só pode aparecer no app quando o
+   promotor escolhe uma das lojas liberadas. A lista é montada aqui e lida pelo app. */
+let _CAT_SKUS = [];        // SKUs desenhados na tela, na ordem
+let SKULOJA = null;        // { sku, desc, cat, sel:Set(id), restrito:bool }
+let _SKULOJA_VIS = [];     // lojas visíveis na busca atual (o checkbox usa o índice)
+
+window.abrirLojasSku = function(i) {
+  const p = _CAT_SKUS[i];
+  if (!p) return;
+  const atual = restricaoDoSku(p.sku);
+  SKULOJA = { sku:p.sku, desc:p.desc, cat:p.cat, sel:new Set(atual||[]), restrito:Array.isArray(atual) };
+  document.getElementById("skuloja-titulo").textContent = p.desc;
+  document.getElementById("skuloja-sku").textContent = p.sku + " · " + p.cat;
+  document.getElementById("skuloja-busca").value = "";
+  document.getElementById("skuloja-modal").style.display = "flex";
+  renderSkuLojas();
+};
+
+window.fecharLojasSku = function() {
+  document.getElementById("skuloja-modal").style.display = "none";
+  SKULOJA = null;
+};
+
+window.setRestritoSku = function(v) {
+  if (!SKULOJA) return;
+  SKULOJA.restrito = v;
+  renderSkuLojas();
+};
+
+window.filtrarLojasSku = function() { renderSkuLojas(true); };
+
+// Sem busca, mostra só as lojas já marcadas: varrer 1.800+ linhas a cada tecla trava a tela
+function renderSkuLojas(manterFoco) {
+  if (!SKULOJA) return;
+  const q = (document.getElementById("skuloja-busca").value||"").toLowerCase().trim();
+  const box = document.getElementById("skuloja-lista");
+  const modo = document.getElementById("skuloja-modo");
+  const rodape = document.getElementById("skuloja-resumo");
+
+  modo.innerHTML = `
+    <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;">
+      <input type="radio" name="skuloja-modo" ${!SKULOJA.restrito?"checked":""} onchange="setRestritoSku(false)" style="margin-top:2px;accent-color:var(--accent);">
+      <span><strong>Todas as lojas</strong><br><span style="color:var(--muted);font-size:11px;">Qualquer promotor vê este SKU em qualquer loja.</span></span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin-top:8px;">
+      <input type="radio" name="skuloja-modo" ${SKULOJA.restrito?"checked":""} onchange="setRestritoSku(true)" style="margin-top:2px;accent-color:var(--accent);">
+      <span><strong>Somente as lojas selecionadas</strong><br><span style="color:var(--muted);font-size:11px;">Nas demais lojas o SKU nem aparece no app.</span></span>
+    </label>`;
+
+  if (!SKULOJA.restrito) {
+    box.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:12px;padding:24px 8px;">Sem restrição: o SKU aparece em todas as lojas.</div>`;
+    rodape.textContent = "";
+    return;
+  }
+
+  let lista;
+  if (q) {
+    const termos = q.split(/\s+/).filter(Boolean);
+    lista = LOJAS_DB.filter(l => {
+      const alvo = ((l.nome||"")+" "+(l.ende||"")+" "+(l.canal||"")+" "+(l.uf||"")).toLowerCase();
+      return termos.every(t => alvo.includes(t));
+    });
+  } else {
+    lista = LOJAS_DB.filter(l => SKULOJA.sel.has(l.id));
+  }
+  lista.sort((a,b)=>(a.nome||"").localeCompare(b.nome||"","pt-BR"));
+  const TETO = 300;
+  _SKULOJA_VIS = lista.slice(0, TETO);
+
+  if (!lista.length) {
+    box.innerHTML = q
+      ? `<div style="text-align:center;color:var(--muted);font-size:12px;padding:24px 8px;">Nenhuma loja encontrada para “${q}”.</div>`
+      : `<div style="text-align:center;color:var(--muted);font-size:12px;padding:24px 8px;">Nenhuma loja selecionada ainda.<br>Busque pelo nome da rede ou da loja acima.</div>`;
+  } else {
+    box.innerHTML = _SKULOJA_VIS.map((l,i) => {
+      const on = SKULOJA.sel.has(l.id);
+      return `<label style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;">
+        <input type="checkbox" ${on?"checked":""} onchange="toggleLojaSku(${i})" style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0;">
+        <span style="flex:1;min-width:0;">
+          <strong>${l.nome||""}</strong>
+          <span style="color:var(--muted);font-size:11px;"> · ${l.canal||"sem rede"} · ${l.uf||"—"}</span>
+          ${l.ende?`<br><span style="color:var(--muted);font-size:11px;">${l.ende}</span>`:""}
+        </span>
+      </label>`;
+    }).join("");
+  }
+
+  const extra = lista.length > TETO ? ` (mostrando ${TETO} — refine a busca)` : "";
+  rodape.innerHTML = `<strong>${SKULOJA.sel.size}</strong> loja(s) selecionada(s)${q?` · ${lista.length} encontrada(s)${extra}`:""}`;
+  document.getElementById("skuloja-marcar").style.display = (q && lista.length) ? "inline-block" : "none";
+  document.getElementById("skuloja-desmarcar").style.display = SKULOJA.sel.size ? "inline-block" : "none";
+  if (manterFoco) { const el = document.getElementById("skuloja-busca"); el.focus(); const n = el.value.length; el.setSelectionRange(n,n); }
+}
+
+window.toggleLojaSku = function(i) {
+  const l = _SKULOJA_VIS[i];
+  if (!l || !SKULOJA) return;
+  if (SKULOJA.sel.has(l.id)) SKULOJA.sel.delete(l.id); else SKULOJA.sel.add(l.id);
+  renderSkuLojas();
+};
+
+// Marca de uma vez tudo o que a busca achou — é como se liga "a rede SAMS inteira"
+window.marcarEncontradasSku = function() {
+  if (!SKULOJA) return;
+  const q = (document.getElementById("skuloja-busca").value||"").toLowerCase().trim();
+  if (!q) return;
+  const termos = q.split(/\s+/).filter(Boolean);
+  LOJAS_DB.forEach(l => {
+    const alvo = ((l.nome||"")+" "+(l.ende||"")+" "+(l.canal||"")+" "+(l.uf||"")).toLowerCase();
+    if (termos.every(t => alvo.includes(t))) SKULOJA.sel.add(l.id);
+  });
+  renderSkuLojas();
+};
+
+window.limparLojasSku = function() {
+  if (!SKULOJA) return;
+  if (!confirm(`Desmarcar as ${SKULOJA.sel.size} lojas selecionadas?`)) return;
+  SKULOJA.sel.clear();
+  renderSkuLojas();
+};
+
+window.salvarLojasSku = async function() {
+  if (!SKULOJA) return;
+  if (SKULOJA.restrito && SKULOJA.sel.size === 0) {
+    alert("Selecione ao menos uma loja — do jeito que está, o SKU não apareceria para ninguém.\n\nSe a intenção é liberar geral, marque \"Todas as lojas\".");
+    return;
+  }
+  const resto = (CATALOGO_CFG.skus_restritos||[]).filter(x => x && x.sku !== SKULOJA.sku);
+  CATALOGO_CFG.skus_restritos = SKULOJA.restrito
+    ? [...resto, { sku: SKULOJA.sku, lojas: [...SKULOJA.sel] }]
+    : resto;
+  await salvarCatalogoCfg();
+  fecharLojasSku();
+  renderCatalogo();
+};
 
 window.toggleCategoria = async function(cat) {
   const set = new Set(CATALOGO_CFG.categorias_desativadas);
@@ -6174,6 +6336,32 @@ window.executarExclusao = async function() {
     <p id="freq-modal-sub" style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.4;"></p>
     <div id="freq-modal-btns" style="display:flex;flex-direction:column;gap:8px;"></div>
     <button onclick="fecharFreqModal()" style="margin-top:14px;width:100%;background:none;border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+  </div>
+</div>
+
+<!-- Lojas que enxergam um SKU (packs negociados com clientes específicos) -->
+<div id="skuloja-modal" style="display:none;position:fixed;inset:0;z-index:1070;background:rgba(0,0,0,.55);align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px;" onclick="if(event.target===this)fecharLojasSku()">
+  <div style="background:var(--card);border-radius:14px;padding:20px;max-width:560px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.28);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px;">
+      <div style="min-width:0;">
+        <h3 id="skuloja-titulo" style="font-size:15px;font-weight:700;"></h3>
+        <div id="skuloja-sku" style="font-size:11px;color:var(--muted);margin-top:2px;"></div>
+      </div>
+      <button onclick="fecharLojasSku()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);">×</button>
+    </div>
+    <div id="skuloja-modo" style="margin:14px 0;padding:12px;background:var(--card2);border-radius:10px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <input type="text" id="skuloja-busca" placeholder="🔍 Buscar por loja, rede, endereço ou UF…" oninput="filtrarLojasSku()" autocomplete="off"
+        style="flex:1;min-width:200px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 11px;outline:none;font-family:var(--font);">
+      <button id="skuloja-marcar" onclick="marcarEncontradasSku()" style="display:none;background:var(--accent-lo);border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">Marcar todas as encontradas</button>
+      <button id="skuloja-desmarcar" onclick="limparLojasSku()" style="display:none;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);white-space:nowrap;">Limpar seleção</button>
+    </div>
+    <div id="skuloja-lista" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:4px 10px;"></div>
+    <div id="skuloja-resumo" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button onclick="fecharLojasSku()" style="flex:1;background:none;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+      <button onclick="salvarLojasSku()" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">Salvar</button>
+    </div>
   </div>
 </div>
 </body>
