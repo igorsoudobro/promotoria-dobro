@@ -5397,14 +5397,10 @@ window.salvarLojaManual = async function() {
   // acento), reaproveita a grafia da base — evita criar "muffato" ao lado de "Muffato".
   let canal = selCanal;
   if (selCanal === "__NOVA__") {
-    canal = document.getElementById("loja-canal-nova").value.trim();
-    if (!canal) { alert("Digite o nome da nova rede."); return; }
-    const chave = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
-    const existente = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].find(c => chave(c) === chave(canal));
-    if (existente && existente !== canal) {
-      if (!confirm(`A rede "${existente}" já existe na base.\n\nUsar "${existente}" em vez de criar "${canal}"?`)) return;
-      canal = existente;
-    }
+    const digitado = document.getElementById("loja-canal-nova").value.trim();
+    if (!digitado) { alert("Digite o nome da nova rede."); return; }
+    canal = resolverNomeRede(digitado); // mesma checagem de grafia usada na edição
+    if (canal === null) return;
   }
 
   // Monta endereço: "Rua, Número - Bairro"
@@ -5714,6 +5710,7 @@ window.renderCadastroLojas = function() {
         <div style="color:var(--muted);" title="Frequência ideal do canal">Ideal: <strong style="color:var(--text);">${l.freq||"não visita"}</strong></div>
         <div style="color:var(--muted);" title="Frequência que o promotor faz nesta loja — definida na tela de Cobertura">Alocada: <strong style="color:${freqAlocada(l)?"var(--accent)":"var(--yellow)"};">${freqAlocada(l)||"não visita"}</strong></div>
       </div>
+      <button onclick="abrirEditarLoja('${l.id}')" title="Editar nome, endereço, rede, UF e frequência ideal" style="background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer;padding:4px 10px;border-radius:6px;flex-shrink:0;font-family:var(--font);" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">✏️ Editar</button>
       <button onclick="excluirLojaCadastro('${l.id}','${nomeEsc}')" title="Excluir loja do banco" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;flex-shrink:0;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>
     </div>`;
   });
@@ -5734,6 +5731,126 @@ window.editarFreqAtr = async function(lojaId, novaFreq) {
     loja.freqAtr = anterior; // reverte em falha
     console.error(e);
     alert("Não foi possível salvar a frequência (conexão ou permissão). Nada foi alterado.");
+  }
+};
+
+/* ─── EDITAR LOJA ───
+   O cadastro só permitia criar e excluir. Para corrigir uma loja já existente — dar rede
+   a quem está sem, arrumar grafia, UF ou frequência ideal — a saída era excluir e recriar,
+   o que faz a loja perder o id e, com ele, o vínculo com promotor e com a rota. */
+let EDLOJA_ID = null;
+
+function redesDaBase() {
+  return [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+}
+
+// Resolve o nome de uma rede digitada contra as que já existem: se só difere em caixa ou
+// acento, reaproveita a grafia da base — senão convivem "sams club" e "Sams Club", e os
+// filtros de Rede passam a listar a mesma rede duas vezes. Devolve null se desistiu.
+function resolverNomeRede(digitado) {
+  const canal = String(digitado||"").trim();
+  if (!canal) return null;
+  const chave = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const existente = redesDaBase().find(c => chave(c) === chave(canal));
+  if (existente && existente !== canal) {
+    if (!confirm(`A rede "${existente}" já existe na base.\n\nUsar "${existente}" em vez de criar "${canal}"?`)) return null;
+    return existente;
+  }
+  return canal;
+}
+
+window.abrirEditarLoja = function(id) {
+  const l = LOJAS_DB.find(x => x.id === id);
+  if (!l) return;
+  EDLOJA_ID = id;
+
+  document.getElementById("edloja-nome").value = l.nome || "";
+  document.getElementById("edloja-ende").value = l.ende || "";
+  document.getElementById("edloja-freq").value = l.freq || "";
+
+  const selC = document.getElementById("edloja-canal");
+  selC.innerHTML = `<option value="">— sem rede —</option>`
+    + redesDaBase().map(c=>`<option value="${String(c).replace(/"/g,"&quot;")}">${c}</option>`).join("")
+    + `<option value="__NOVA__">➕ Criar nova rede…</option>`;
+  selC.value = l.canal || "";
+  document.getElementById("edloja-canal-nova").style.display = "none";
+  document.getElementById("edloja-canal-nova").value = "";
+
+  const ufs = ["AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT","PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"];
+  const selU = document.getElementById("edloja-uf");
+  selU.innerHTML = `<option value="">—</option>` + ufs.map(u=>`<option value="${u}">${u}</option>`).join("");
+  selU.value = l.uf || "";
+
+  // Promotor e frequência alocada continuam saindo da Cobertura: aqui é dado estrutural
+  const prom = (l.promotores||[]).join(", ");
+  document.getElementById("edloja-info").textContent = prom
+    ? `Promotor: ${prom} · frequência alocada: ${freqAlocada(l) || "não visita"} (alterar na tela de Cobertura)`
+    : "Sem promotor atrelado. Para atrelar, use a tela de Cobertura de Promotoria.";
+
+  document.getElementById("edloja-modal").style.display = "flex";
+};
+
+window.alternarNovaRedeEd = function() {
+  const sel = document.getElementById("edloja-canal");
+  const inp = document.getElementById("edloja-canal-nova");
+  const nova = sel.value === "__NOVA__";
+  inp.style.display = nova ? "block" : "none";
+  if (nova) inp.focus(); else inp.value = "";
+};
+
+window.fecharEditarLoja = function() {
+  document.getElementById("edloja-modal").style.display = "none";
+  EDLOJA_ID = null;
+};
+
+window.salvarEditarLoja = async function() {
+  const l = LOJAS_DB.find(x => x.id === EDLOJA_ID);
+  if (!l) return;
+
+  const nome = document.getElementById("edloja-nome").value.trim();
+  const ende = document.getElementById("edloja-ende").value.trim();
+  const uf   = document.getElementById("edloja-uf").value;
+  const freq = document.getElementById("edloja-freq").value;
+  const selCanal = document.getElementById("edloja-canal").value;
+  if (!nome) { alert("O nome da loja não pode ficar vazio."); return; }
+
+  let canal = selCanal;
+  if (selCanal === "__NOVA__") {
+    const digitado = document.getElementById("edloja-canal-nova").value.trim();
+    if (!digitado) { alert("Digite o nome da nova rede."); return; }
+    canal = resolverNomeRede(digitado);
+    if (canal === null) return; // desistiu na confirmação de grafia
+  }
+
+  // Só grava o que mudou: update parcial preserva promotores, freqAtr e cep sem precisar
+  // reescrever o documento inteiro
+  const mud = {};
+  if (nome !== (l.nome||"")) mud.nome = nome;
+  if (ende !== (l.ende||"")) mud.ende = ende;
+  if (uf   !== (l.uf||""))   mud.uf = uf;
+  if (freq !== (l.freq||"")) mud.freq = freq;
+  if (canal!== (l.canal||"")) mud.canal = canal;
+  if (!Object.keys(mud).length) { fecharEditarLoja(); return; }
+
+  // Nome e número do endereço são a chave que liga visita↔loja no cálculo de cobertura.
+  // Mudando um dos dois, visita já registrada com a grafia antiga deixa de casar.
+  if (mud.nome || mud.ende) {
+    const antiga = chaveLojaCob(l.nome, l.ende);
+    const nova = chaveLojaCob(nome, ende);
+    if (antiga !== nova) {
+      const n = VISITAS.filter(v => chaveLojaCob(v.loja, v.lojaEnde) === antiga).length;
+      if (n && !confirm(`${n} visita(s) já registrada(s) casam com esta loja pelo nome + número do endereço.\n\nCom a alteração, essas visitas deixam de casar e somem de "Realizadas" na Cobertura desta loja.\n\nContinuar mesmo assim?`)) return;
+    }
+  }
+
+  try {
+    await firebase.firestore().collection("lojas").doc(EDLOJA_ID).update(mud);
+    Object.assign(l, mud);
+    fecharEditarLoja();
+    renderCadastroLojas();
+  } catch(e) {
+    console.error(e);
+    alert("Não foi possível salvar (conexão ou permissão). Nada foi alterado.");
   }
 };
 
@@ -6336,6 +6453,52 @@ window.executarExclusao = async function() {
     <p id="freq-modal-sub" style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.4;"></p>
     <div id="freq-modal-btns" style="display:flex;flex-direction:column;gap:8px;"></div>
     <button onclick="fecharFreqModal()" style="margin-top:14px;width:100%;background:none;border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+  </div>
+</div>
+
+<!-- Editar uma loja já cadastrada (dado estrutural: nome, endereço, rede, UF, freq. ideal) -->
+<div id="edloja-modal" style="display:none;position:fixed;inset:0;z-index:1075;background:rgba(0,0,0,.55);align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px;" onclick="if(event.target===this)fecharEditarLoja()">
+  <div style="background:var(--card);border-radius:14px;padding:22px;max-width:520px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.28);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <h3 style="font-size:15px;font-weight:700;">Editar loja</h3>
+      <button onclick="fecharEditarLoja()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);">×</button>
+    </div>
+    <div id="edloja-info" style="font-size:11px;color:var(--muted);margin-bottom:16px;"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="grid-column:1/-1;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Nome da loja</label>
+        <input type="text" id="edloja-nome" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none;">
+      </div>
+      <div style="grid-column:1/-1;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Endereço</label>
+        <input type="text" id="edloja-ende" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none;">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal</label>
+        <select id="edloja-canal" class="filter-select" style="width:100%;" onchange="alternarNovaRedeEd()"></select>
+        <input type="text" id="edloja-canal-nova" placeholder="Nome da nova rede (ex: Sams Club)" style="display:none;width:100%;margin-top:8px;background:var(--card2);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font);color:var(--text);outline:none;">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Estado (UF)</label>
+        <select id="edloja-uf" class="filter-select" style="width:100%;"></select>
+      </div>
+      <div style="grid-column:1/-1;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Frequência ideal</label>
+        <select id="edloja-freq" class="filter-select" style="width:100%;">
+          <option value="">— não visita —</option>
+          <option value="Semanal">Semanal</option>
+          <option value="Quinzenal">Quinzenal</option>
+          <option value="Mensal">Mensal</option>
+        </select>
+        <p style="font-size:11px;color:var(--muted);margin-top:5px;">Meta do canal. A frequência alocada ao promotor é definida na tela de Cobertura.</p>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button onclick="fecharEditarLoja()" style="flex:1;background:none;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+      <button onclick="salvarEditarLoja()" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">Salvar alterações</button>
+    </div>
   </div>
 </div>
 
