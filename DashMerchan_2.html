@@ -515,6 +515,9 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <select class="filter-select" id="f-promotor" onchange="renderTabela()">
           <option value="">Todos os promotores</option>
         </select>
+        <select class="filter-select" id="f-rede" onchange="renderTabela()">
+          <option value="">Todas as redes</option>
+        </select>
         <select class="filter-select" id="f-status" onchange="renderTabela()">
           <option value="">Todos os status</option>
           <option value="green">✅ OK (> 270 dias)</option>
@@ -1310,6 +1313,8 @@ window.carregarDados = async () => {
 
   calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
   popularFiltroPromotores();
+  // Depende de LOJAS_DB, que o Promise.all acima já garantiu carregado
+  popularFiltroRedesVisitas();
   // Aviso de virada de mês (só para o usuário responsável, uma vez por mês)
   verificarViradaDeMes();
 };
@@ -1324,6 +1329,46 @@ function popularFiltroPromotores() {
     const el = document.getElementById(id);
     if (el) { const atual = el.value; el.innerHTML = opts; el.value = atual; }
   });
+}
+
+/* ─── REDE DA VISITA ───
+   A visita guarda só nome e endereço da loja, não a rede. Para filtrar por rede é preciso
+   casar cada visita com o cadastro pela mesma chave usada na Cobertura (nome + número do
+   endereço). Visita que não casa com nenhuma loja — ex: "fora do roteiro" digitado no app
+   — cai em "sem rede", e não some do filtro. */
+let MAPA_REDE_VISITA = null; // chaveLojaCob -> canal
+
+function mapaRedePorChave() {
+  if (!MAPA_REDE_VISITA) {
+    MAPA_REDE_VISITA = {};
+    LOJAS_DB.forEach(l => {
+      const k = chaveLojaCob(l.nome, l.ende);
+      if (!MAPA_REDE_VISITA[k]) MAPA_REDE_VISITA[k] = l.canal || "";
+    });
+  }
+  return MAPA_REDE_VISITA;
+}
+
+function redeDaVisita(v) {
+  return mapaRedePorChave()[chaveLojaCob(v.loja, v.lojaEnde)] || "";
+}
+
+// Só as redes que realmente aparecem nas visitas: listar as 40+ da base deixaria o menu
+// cheio de opção que não filtra nada.
+function popularFiltroRedesVisitas() {
+  MAPA_REDE_VISITA = null; // cadastro pode ter mudado desde a última montagem
+  const el = document.getElementById("f-rede");
+  if (!el) return;
+  const redes = new Set();
+  let semRede = 0;
+  VISITAS.forEach(v => { const r = redeDaVisita(v); if (r) redes.add(r); else semRede++; });
+  const lista = [...redes].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  const atual = el.value;
+  el.innerHTML = `<option value="">Todas as redes</option>`
+    + lista.map(r=>`<option value="${String(r).replace(/"/g,"&quot;")}">${r}</option>`).join("")
+    + (semRede ? `<option value="__SEM__">— sem rede (${semRede}) —</option>` : "");
+  el.value = atual;
+  if (el.value !== atual) el.value = ""; // a rede selecionada sumiu da base
 }
 
 /* ─── HELPERS DIAS ─── */
@@ -1390,13 +1435,15 @@ function thumbCld(url, w, h, modo) {
 /* ─── TABELA VISITAS ─── */
 // Filtro/ordenação da aba Visitas, extraído de renderTabela para o "Extrair Excel" usar
 // exatamente os mesmos critérios da tela — sem duplicar a regra em dois lugares.
-function aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort) {
+function aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort, rede) {
   if (busca) vs = vs.filter(v =>
     ((v.loja||"")+" "+(v.lojaEnde||"")).toLowerCase().includes(busca) ||
     (v.produtos||[]).some(p => p.desc?.toLowerCase().includes(busca))
   );
   if (data) vs = vs.filter(v => v.data === data);
   if (promotor) vs = vs.filter(v => v.promotor === promotor);
+  if (rede === "__SEM__") vs = vs.filter(v => !redeDaVisita(v));
+  else if (rede) vs = vs.filter(v => redeDaVisita(v) === rede);
   if (status) vs = vs.filter(v => piorStatus(v) === status);
 
   if (sort==="data-asc")  vs.sort((a,b)=>a.timestamp>b.timestamp?1:-1);
@@ -1413,7 +1460,8 @@ function visitasFiltradasTela() {
     document.getElementById("f-data")?.value || "",
     document.getElementById("f-promotor")?.value || "",
     document.getElementById("f-status")?.value || "",
-    document.getElementById("f-sort")?.value || ""
+    document.getElementById("f-sort")?.value || "",
+    document.getElementById("f-rede")?.value || ""
   );
 }
 
@@ -1432,6 +1480,7 @@ window.extrairExcelVisitas = function() {
       Data: v.data || "",
       Loja: v.loja || "",
       Endereço: v.lojaEnde || "",
+      Rede: redeDaVisita(v),
       Promotor: v.promotor || "",
       MPdV: v.mpdv===true?"Sim":v.mpdv===false?"Não":"",
       Início: hora(v.horaInicio),
@@ -1480,10 +1529,11 @@ window.renderTabela = () => {
   const status = document.getElementById("f-status").value;
   const promotor = document.getElementById("f-promotor").value;
   const sort   = document.getElementById("f-sort").value;
+  const rede   = document.getElementById("f-rede")?.value || "";
 
   let vs = [...VISITAS];
 
-  vs = aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort);
+  vs = aplicarFiltrosVisitas(vs, busca, data, promotor, status, sort, rede);
 
   if (!vs.length) {
     document.getElementById("tab-container").innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>Nenhuma visita encontrada.</div>`;
@@ -1492,7 +1542,7 @@ window.renderTabela = () => {
 
   // ── Paginação (30 por página) ──
   // Se o filtro mudou desde o último render, volta para a página 1
-  const assinatura = [busca, data, status, promotor, sort].join("|");
+  const assinatura = [busca, data, status, promotor, sort, rede].join("|");
   if (assinatura !== VISITAS_FILTRO_ASSINATURA) { VISITAS_PAGINA = 1; VISITAS_FILTRO_ASSINATURA = assinatura; }
   const POR_PAGINA = 30;
   const totalPaginas = Math.ceil(vs.length / POR_PAGINA);
@@ -5846,6 +5896,8 @@ window.salvarEditarLoja = async function() {
   try {
     await firebase.firestore().collection("lojas").doc(EDLOJA_ID).update(mud);
     Object.assign(l, mud);
+    // Mudou nome, endereço ou rede: o filtro de rede das Visitas casa por nome + número
+    if (mud.nome || mud.ende || mud.canal !== undefined) popularFiltroRedesVisitas();
     fecharEditarLoja();
     renderCadastroLojas();
   } catch(e) {
