@@ -2314,14 +2314,30 @@ window.criarCategoria = async function() {
   renderCatalogo();
 };
 
-// Popula o dropdown de lojas conforme a rede escolhida (item: filtrar por rede e opcionalmente loja)
+// Popula o dropdown de lojas conforme a rede escolhida.
+// Antes a lista era de NOMES distintos e o filtro casava por nome exato: escolher
+// "Centauro" trazia as 8 Centauro juntas, e não havia como isolar uma unidade. Agora cada
+// loja é uma opção com o endereço, e o valor é a chave nome+número usada no resto do sistema.
 window.onChangePrecosRede = function() {
   const rede = document.getElementById("f-precos-rede")?.value || "";
   const selLoja = document.getElementById("f-precos-loja");
   if (selLoja) {
+    const atual = selLoja.value;
     const lojas = LOJAS_DB.filter(l => !rede || (l.canal||"")===rede)
-      .map(l => l.nome).filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b,"pt-BR"));
-    selLoja.innerHTML = `<option value="">Todas as lojas</option>` + lojas.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join("");
+      .slice()
+      .sort((a,b)=> (a.nome||"").localeCompare(b.nome||"","pt-BR") || (a.ende||"").localeCompare(b.ende||"","pt-BR"));
+    const vistas = new Set();
+    const opts = [];
+    lojas.forEach(l => {
+      const chave = chaveLojaCob(l.nome, l.ende);
+      if (vistas.has(chave)) return; // duas cadastradas na mesma chave: uma opção só
+      vistas.add(chave);
+      const rot = (l.nome||"") + (l.ende ? " — " + l.ende : "");
+      opts.push(`<option value="${chave.replace(/"/g,'&quot;')}">${rot.replace(/</g,"&lt;")}</option>`);
+    });
+    selLoja.innerHTML = `<option value="">Todas as lojas</option>` + opts.join("");
+    selLoja.value = atual;
+    if (selLoja.value !== atual) selLoja.value = ""; // a loja escolhida saiu da rede filtrada
   }
   renderPrecos();
 };
@@ -2343,31 +2359,21 @@ function canalDaVisita(v) {
   return loja ? (loja.canal||"") : "";
 }
 
-window.renderPrecos = async function() {
-  const tbody = document.getElementById("precos-tbody");
-  if (!tbody) return;
-  popularFiltroRedeLojaPrecos();
-  // Carrega preços ideais + tolerâncias salvos (bug: antes só carregava na aba Painel)
-  try {
-    const snap = await firebase.firestore().collection("config").doc("painel").get();
-    if (snap.exists) {
-      const d = snap.data();
-      if (d.precos_ideais) PRECOS_IDEAIS = d.precos_ideais;
-      if (d.precos_tolerancia) PRECOS_TOLERANCIA = d.precos_tolerancia;
-      if (d.precos_removidos) PRECOS_REMOVIDOS = d.precos_removidos;
-    }
-  } catch(e) { console.warn("Carregar preços:", e); }
-  await carregarCatalogoCfg(); // para respeitar categorias ativas/desativadas
+// Lê os filtros da tela de Est. Preços e devolve tudo o que depende deles. Extraído de
+// renderPrecos para o histórico poder se redesenhar sozinho na busca, sem refazer a
+// leitura do Firestore e sem duplicar a regra de filtro em dois lugares.
+function precosContexto() {
   const promotoresSel = precosPromotoresSel; // array; vazio = todos
   const passaPromotor = v => !promotoresSel.length || promotoresSel.includes(v.promotor);
   const pIni = document.getElementById("f-precos-ini")?.value;
   const pFim = document.getElementById("f-precos-fim")?.value;
   const fRede = document.getElementById("f-precos-rede")?.value || "";
   const fLoja = document.getElementById("f-precos-loja")?.value || "";
-  const soAnomalias = document.getElementById("f-precos-anomalias")?.checked;
+  const soAnomalias = !!document.getElementById("f-precos-anomalias")?.checked;
   const noPeriodo = v => (!pIni || (v.data && v.data >= pIni)) && (!pFim || (v.data && v.data <= pFim));
   const passaRede = v => !fRede || canalDaVisita(v)===fRede;
-  const passaLoja = v => !fLoja || (v.loja||"")===fLoja;
+  // fLoja agora é a chave nome+número da loja, não o nome: isola a unidade certa
+  const passaLoja = v => !fLoja || chaveLojaCob(v.loja, v.lojaEnde) === fLoja;
   const passaFiltros = v => passaPromotor(v) && noPeriodo(v) && passaRede(v) && passaLoja(v);
 
   // Preços removidos manualmente (item: excluir preço). Chave = idVisita||categoria
@@ -2385,7 +2391,7 @@ window.renderPrecos = async function() {
     });
   });
 
-  // Define se um registro é anomalia: divergência > 100% vs ideal E/OU vs média da categoria
+  // Anomalia: divergência > 100% vs ideal E/OU vs média da categoria
   function ehAnomalia(cat, val) {
     const ideal = PRECOS_IDEAIS[cat] || null;
     const med = mediaCat[cat] ? (mediaCat[cat].soma/mediaCat[cat].count) : null;
@@ -2394,6 +2400,26 @@ window.renderPrecos = async function() {
     if (med && med>0)     { if (Math.abs((val-med)/med) > 1) anom = true; }
     return anom;
   }
+
+  return { passaFiltros, removido, ehAnomalia, soAnomalias, mediaCat };
+}
+
+window.renderPrecos = async function() {
+  const tbody = document.getElementById("precos-tbody");
+  if (!tbody) return;
+  popularFiltroRedeLojaPrecos();
+  // Carrega preços ideais + tolerâncias salvos (bug: antes só carregava na aba Painel)
+  try {
+    const snap = await firebase.firestore().collection("config").doc("painel").get();
+    if (snap.exists) {
+      const d = snap.data();
+      if (d.precos_ideais) PRECOS_IDEAIS = d.precos_ideais;
+      if (d.precos_tolerancia) PRECOS_TOLERANCIA = d.precos_tolerancia;
+      if (d.precos_removidos) PRECOS_REMOVIDOS = d.precos_removidos;
+    }
+  } catch(e) { console.warn("Carregar preços:", e); }
+  await carregarCatalogoCfg(); // para respeitar categorias ativas/desativadas
+  const { mediaCat } = precosContexto();
 
   let html="";
   categoriasAtivas().forEach(cat => {
@@ -2431,31 +2457,140 @@ window.renderPrecos = async function() {
   });
   tbody.innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--muted);">Nenhum dado de preço.</td></tr>';
 
-  const hist=document.getElementById("precos-historico-container");
-  if (hist) {
-    const todos=[];
-    VISITAS.forEach(v=>{
-      if(!passaFiltros(v)) return;
-      Object.entries(v.precos||{}).forEach(([cat,d])=>{
-        if(!(d.presente&&d.preco)) return;
-        if(removido(v.id,cat)) return; // preço excluído não aparece no histórico
-        const val=parseFloat(d.preco);
-        const anom = ehAnomalia(cat, val);
-        if (soAnomalias && !anom) return;
-        todos.push({idVisita:v.id,loja:v.loja,lojaEnde:v.lojaEnde||"",data:v.data,cat,preco:d.preco,just:d.justificativa||"",anom});
-      });
+  renderPrecosHistorico();
+};
+
+/* ─── HISTÓRICO DE REGISTROS DE PREÇO ───
+   Função própria (antes era o rabo do renderPrecos) para a busca por loja redesenhar só
+   esta lista: chamar renderPrecos a cada tecla refaria a leitura do Firestore e destruiria
+   o campo de busca, perdendo o foco. */
+let PRECOS_BUSCA_HIST = "";
+let _PRECOS_HIST = [];   // linhas visíveis, para os botões referenciarem por índice
+
+window.buscarPrecoHist = function(valor) {
+  PRECOS_BUSCA_HIST = valor || "";
+  renderPrecosHistorico();
+  const el = document.getElementById("precos-busca-hist");
+  if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }
+};
+
+window.renderPrecosHistorico = function() {
+  const hist = document.getElementById("precos-historico-container");
+  if (!hist) return;
+  const { passaFiltros, removido, ehAnomalia, soAnomalias } = precosContexto();
+
+  const todos=[];
+  VISITAS.forEach(v=>{
+    if(!passaFiltros(v)) return;
+    Object.entries(v.precos||{}).forEach(([cat,d])=>{
+      if(!(d.presente&&d.preco)) return;
+      if(removido(v.id,cat)) return; // preço excluído não aparece no histórico
+      const val=parseFloat(d.preco);
+      const anom = ehAnomalia(cat, val);
+      if (soAnomalias && !anom) return;
+      todos.push({idVisita:v.id,loja:v.loja,lojaEnde:v.lojaEnde||"",data:v.data,cat,preco:d.preco,just:d.justificativa||"",anom,editadoPor:v.editadoPor||""});
     });
-    todos.sort((a,b)=>b.data>a.data?1:-1);
-    const podeExcluir = podeApagarVisitas();
-    if(!todos.length){hist.innerHTML=`<p style="color:var(--muted);font-size:13px;">${soAnomalias?"Nenhuma anomalia no filtro atual.":"Nenhum registro ainda."}</p>`;return;}
-    hist.innerHTML=`<div class="table-shell"><table><thead><tr><th>Data</th><th>Loja</th><th>Categoria</th><th>Preço (R$)</th><th>Justificativa</th>${podeExcluir?"<th></th>":""}</tr></thead><tbody>
-      ${todos.map(r=>`<tr${r.anom?' style="background:rgba(220,53,69,.06);"':''}>
-        <td style="font-feature-settings:'tnum'">${r.data?new Date(r.data+"T12:00:00").toLocaleDateString("pt-BR"):"—"}</td>
-        <td>${r.loja||"—"}${r.lojaEnde?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.lojaEnde}</div>`:""}</td><td>${r.cat}</td>
-        <td style="font-weight:700">${r.anom?'⚠️ ':''}R$ ${parseFloat(r.preco).toFixed(2)}</td>
-        <td style="color:var(--muted)">${r.just||"—"}</td>
-        ${podeExcluir?`<td><button onclick="excluirPreco('${r.idVisita}','${r.cat.replace(/'/g,"\\'")}','${(r.loja||"").replace(/'/g,"\\'")}')" title="Excluir este preço da análise" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button></td>`:""}
-      </tr>`).join("")}</tbody></table></div>`;
+  });
+  todos.sort((a,b)=>b.data>a.data?1:-1);
+
+  const q = PRECOS_BUSCA_HIST.toLowerCase().trim();
+  const vis = q
+    ? todos.filter(r => ((r.loja||"")+" "+(r.lojaEnde||"")+" "+(r.cat||"")).toLowerCase().includes(q))
+    : todos;
+  _PRECOS_HIST = vis;
+
+  const podeExcluir = podeApagarVisitas();
+  const busca = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+    <input type="text" id="precos-busca-hist" value="${PRECOS_BUSCA_HIST.replace(/"/g,"&quot;")}" placeholder="🔍 Buscar loja, endereço ou categoria no histórico…" oninput="buscarPrecoHist(this.value)" autocomplete="off"
+      style="flex:1;min-width:240px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 11px;outline:none;font-family:var(--font);">
+    ${q ? `<span style="font-size:12px;color:var(--muted);white-space:nowrap;">mostrando ${vis.length} de ${todos.length}</span>
+           <button onclick="buscarPrecoHist('')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);">Limpar</button>` : ""}
+  </div>`;
+
+  if(!vis.length){
+    hist.innerHTML = busca + `<p style="color:var(--muted);font-size:13px;">${q?`Nada encontrado para “${q}”.`:(soAnomalias?"Nenhuma anomalia no filtro atual.":"Nenhum registro ainda.")}</p>`;
+    return;
+  }
+
+  hist.innerHTML = busca + `<div class="table-shell"><table><thead><tr><th>Data</th><th>Loja</th><th>Categoria</th><th>Preço (R$)</th><th>Justificativa</th><th></th></tr></thead><tbody>
+    ${vis.map((r,i)=>`<tr${r.anom?' style="background:rgba(220,53,69,.06);"':''}>
+      <td style="font-feature-settings:'tnum'">${r.data?new Date(r.data+"T12:00:00").toLocaleDateString("pt-BR"):"—"}</td>
+      <td>${r.loja||"—"}${r.lojaEnde?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.lojaEnde}</div>`:""}</td><td>${r.cat}</td>
+      <td style="font-weight:700">${r.anom?'⚠️ ':''}R$ ${parseFloat(r.preco).toFixed(2)}</td>
+      <td style="color:var(--muted)">${r.just||"—"}${r.editadoPor?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">editado por ${r.editadoPor}</div>`:""}</td>
+      <td style="white-space:nowrap;">
+        <button onclick="abrirEditarPreco(${i})" title="Corrigir este preço" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">✏️ Editar</button>
+        ${podeExcluir?`<button onclick="excluirPrecoIdx(${i})" title="Excluir este preço da análise" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">🗑</button>`:""}
+      </td>
+    </tr>`).join("")}</tbody></table></div>`;
+};
+
+// Excluir pelo índice da linha: o nome da categoria e o da loja iam interpolados no
+// onclick e qualquer aspa no texto quebrava o HTML
+window.excluirPrecoIdx = function(i) {
+  const r = _PRECOS_HIST[i];
+  if (r) excluirPreco(r.idVisita, r.cat, r.loja || "");
+};
+
+/* ─── EDITAR UM PREÇO DO HISTÓRICO ───
+   Grava no próprio documento da visita (precos[categoria]), como faz a edição de visita.
+   O preço médio, as anomalias e os relatórios leem daí — então corrigir aqui corrige tudo
+   de uma vez. Editar é liberado para todos; excluir continua só para o administrador. */
+let EDPRECO = null;
+
+window.abrirEditarPreco = function(i) {
+  const r = _PRECOS_HIST[i];
+  if (!r) return;
+  EDPRECO = { idVisita: r.idVisita, cat: r.cat };
+  document.getElementById("edpreco-info").innerHTML =
+    `<strong>${r.loja||"—"}</strong>${r.lojaEnde?` · ${r.lojaEnde}`:""}<br>${r.cat} · ${r.data?new Date(r.data+"T12:00:00").toLocaleDateString("pt-BR"):"sem data"}`;
+  document.getElementById("edpreco-valor").value = parseFloat(r.preco).toFixed(2);
+  document.getElementById("edpreco-just").value = r.just || "";
+  document.getElementById("edpreco-modal").style.display = "flex";
+  setTimeout(()=>{ const el=document.getElementById("edpreco-valor"); if(el){ el.focus(); el.select(); } }, 50);
+};
+
+window.fecharEditarPreco = function() {
+  document.getElementById("edpreco-modal").style.display = "none";
+  EDPRECO = null;
+};
+
+window.salvarEditarPreco = async function() {
+  if (!EDPRECO) return;
+  const v = VISITAS.find(x => x.id === EDPRECO.idVisita);
+  if (!v) { alert("Visita não encontrada na memória. Atualize o dashboard."); return; }
+
+  // Aceita 12,90 e 12.90; remove separador de milhar ("1.290,00" → 1290.00)
+  let bruto = (document.getElementById("edpreco-valor").value||"").trim().replace(/\s|R\$/g,"");
+  if (bruto.includes(",")) bruto = bruto.replace(/\./g,"").replace(",",".");
+  const novo = parseFloat(bruto);
+  if (isNaN(novo) || novo <= 0) { alert("Informe um preço válido, maior que zero."); return; }
+  const just = (document.getElementById("edpreco-just").value||"").trim();
+
+  const anteriorPreco = (v.precos && v.precos[EDPRECO.cat]) ? v.precos[EDPRECO.cat].preco : "";
+  const anteriorJust  = (v.precos && v.precos[EDPRECO.cat]) ? (v.precos[EDPRECO.cat].justificativa||"") : "";
+  const mesmoPreco = parseFloat(String(anteriorPreco).replace(",",".")) === novo;
+  if (mesmoPreco && just === anteriorJust) { fecharEditarPreco(); return; }
+
+  // Grava o mapa de preços inteiro: as outras categorias da visita vão junto, intactas
+  const precos = JSON.parse(JSON.stringify(v.precos||{}));
+  precos[EDPRECO.cat] = Object.assign({}, precos[EDPRECO.cat], {
+    presente: true, preco: novo.toFixed(2), justificativa: just
+  });
+
+  const btn = document.getElementById("edpreco-btn");
+  btn.disabled = true; btn.textContent = "Salvando…";
+  const dados = { precos, editadoPor: USUARIO_EMAIL || "desconhecido", editadoEm: new Date().toISOString() };
+  try {
+    await firebase.firestore().collection("visitas").doc(EDPRECO.idVisita).update(dados);
+    Object.assign(v, dados); // reflete na memória sem recarregar a coleção
+    fecharEditarPreco();
+    renderPrecos();          // média e anomalias mudam junto com o preço
+  } catch(e) {
+    console.error("Falha ao salvar preço:", e);
+    alert("Não foi possível salvar (conexão ou permissão). Nada foi alterado.");
+  } finally {
+    btn.disabled = false; btn.textContent = "Salvar preço";
   }
 };
 
@@ -6823,6 +6958,32 @@ window.executarExclusao = async function() {
     <p id="freq-modal-sub" style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.4;"></p>
     <div id="freq-modal-btns" style="display:flex;flex-direction:column;gap:8px;"></div>
     <button onclick="fecharFreqModal()" style="margin-top:14px;width:100%;background:none;border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+  </div>
+</div>
+
+<!-- Corrigir um preço registrado (grava no próprio documento da visita) -->
+<div id="edpreco-modal" style="display:none;position:fixed;inset:0;z-index:1080;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:24px 12px;" onclick="if(event.target===this)fecharEditarPreco()">
+  <div style="background:var(--card);border-radius:14px;padding:22px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.28);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-size:15px;font-weight:700;">Corrigir preço</h3>
+      <button onclick="fecharEditarPreco()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);">×</button>
+    </div>
+    <div id="edpreco-info" style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:16px;"></div>
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Preço (R$)</label>
+      <!-- type=text + inputmode: num campo type=number o navegador descarta "12,90" e
+           devolve string vazia, e a correção era recusada como preço inválido -->
+      <input type="text" inputmode="decimal" id="edpreco-valor" placeholder="0,00" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:18px;font-weight:700;text-align:center;font-family:var(--font);color:var(--text);outline:none;">
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Justificativa</label>
+      <input type="text" id="edpreco-just" placeholder="Opcional — ex: promoção, erro de digitação" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:var(--font);color:var(--text);outline:none;">
+      <p style="font-size:11px;color:var(--muted);margin-top:6px;">A correção entra no preço médio e nas anomalias, e fica registrada no seu nome.</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="fecharEditarPreco()" style="flex:1;background:none;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
+      <button onclick="salvarEditarPreco()" id="edpreco-btn" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">Salvar preço</button>
+    </div>
   </div>
 </div>
 
