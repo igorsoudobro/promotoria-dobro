@@ -562,6 +562,23 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         </div>
       </div>
 
+      <!-- Detalhado x Matriz: o detalhamento por lote continua igual; a matriz é o resumo
+           por loja, feito para caber num print e ser enviado ao vendedor da conta. -->
+      <div class="venc-controls" style="margin-bottom:10px;">
+        <button class="seg-btn active" id="venc-modo-detalhe" onclick="setVencModo('detalhe',this)">📋 Detalhado</button>
+        <button class="seg-btn" id="venc-modo-matriz" onclick="setVencModo('matriz',this)">🧮 Matriz por loja</button>
+        <div id="venc-matriz-controles" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
+          <select class="filter-select" id="f-venc-rede" onchange="renderVencimentos()"><option value="">Todas as redes</option></select>
+          <select class="filter-select" id="f-venc-colunas" onchange="renderVencimentos()">
+            <option value="faixa">Colunas: prazo de vencimento</option>
+            <option value="categoria">Colunas: categoria</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text);white-space:nowrap;">
+            <input type="checkbox" id="f-venc-so-urgentes" onchange="renderVencimentos()" style="width:16px;height:16px;accent-color:var(--red);"> Só lojas com ≤ 120 dias
+          </label>
+        </div>
+      </div>
+
       <div class="venc-controls">
         <button class="seg-btn active" data-venc-filter="all" onclick="setVencFilter('all',this)">Todos</button>
         <button class="seg-btn red-btn" data-venc-filter="red" onclick="setVencFilter('red',this)">🔴 Urgente (≤ 120 dias)</button>
@@ -1720,27 +1737,48 @@ window.setVencFilter = (f, btn) => {
   renderVencimentos();
 };
 
-window.renderVencimentos = () => {
-  const sortBy = document.getElementById("vf-sort").value;
+// Todos os lotes de validade do filtro de promotor, um por lote. Extraído de
+// renderVencimentos para a matriz usar exatamente a mesma base da lista detalhada.
+function lotesVencimento() {
   const promotor = document.getElementById("f-venc-promotor")?.value;
-  let lotes = [];
-
+  const lotes = [];
   VISITAS.forEach(v => {
     if (promotor && v.promotor !== promotor) return;
     (v.produtos||[]).forEach(p => {
       (p.lotes||[]).forEach(l => {
         const dias = diasParaVencer(l.validade);
         const cls  = colorClass(dias);
-        lotes.push({ loja:v.loja, lojaEnde:v.lojaEnde||"", data:v.data, sku:p.sku, desc:p.desc, cat:p.cat, qtd:l.qtd, validade:l.validade, dias, cls });
+        lotes.push({ loja:v.loja, lojaEnde:v.lojaEnde||"", data:v.data, promotor:v.promotor||"",
+                     rede:redeDaVisita(v), sku:p.sku, desc:p.desc, cat:p.cat,
+                     qtd:l.qtd, validade:l.validade, dias, cls });
       });
     });
   });
+  return lotes;
+}
 
-  // Stats venc
+let VENC_MODO = "detalhe";
+window.setVencModo = function(modo, btn) {
+  VENC_MODO = modo;
+  document.getElementById("venc-modo-detalhe").classList.toggle("active", modo==="detalhe");
+  document.getElementById("venc-modo-matriz").classList.toggle("active", modo==="matriz");
+  const ctr = document.getElementById("venc-matriz-controles");
+  if (ctr) ctr.style.display = (modo==="matriz") ? "flex" : "none";
+  renderVencimentos();
+};
+
+window.renderVencimentos = () => {
+  const sortBy = document.getElementById("vf-sort").value;
+  let lotes = lotesVencimento();
+
+  // Stats venc — sempre sobre o total, independentemente do modo e do filtro de status
   document.getElementById("sv-green").textContent  = lotes.filter(l=>l.cls==="green").length;
   document.getElementById("sv-yellow").textContent = lotes.filter(l=>l.cls==="yellow").length;
   document.getElementById("sv-red").textContent    = lotes.filter(l=>l.cls==="red").length;
   document.getElementById("sv-total").textContent  = lotes.length;
+
+  popularFiltroRedeVenc(lotes);
+  if (VENC_MODO === "matriz") { renderMatrizVencimentos(lotes); return; }
 
   // Filter
   if (vencFilterCurrent !== "all") lotes = lotes.filter(l=>l.cls===vencFilterCurrent);
@@ -1794,6 +1832,151 @@ window.renderVencimentos = () => {
   html += `</tbody></table>`;
   document.getElementById("venc-container").innerHTML = html;
 };
+
+/* ═══════════════════════════════════════
+   MATRIZ DE VENCIMENTOS (uma linha por loja)
+   Resumo para print: o vendedor da conta precisa saber ONDE está o problema e QUANTO,
+   não lote a lote. O detalhamento por lote continua no modo "Detalhado".
+
+   Duas decisões de leitura:
+   - A célula soma UNIDADES, não lotes: 3 lotes de 1 unidade não é o mesmo problema que
+     1 lote de 60. O número de lotes vai em texto menor, para não perder a informação.
+   - Lote sem data de validade não entra nas faixas (não dá para saber o prazo) e ganha
+     coluna própria só quando existe, para não sumir da conta calado.
+═══════════════════════════════════════ */
+const VENC_FAIXAS = [
+  { id:"vencido", rot:"Vencido",     cls:"red",    teste: d => d !== null && d < 0 },
+  { id:"d30",     rot:"≤ 30 dias",   cls:"red",    teste: d => d !== null && d >= 0 && d <= 30 },
+  { id:"d60",     rot:"31–60 dias",  cls:"red",    teste: d => d !== null && d > 30 && d <= 60 },
+  { id:"d120",    rot:"61–120 dias", cls:"red",    teste: d => d !== null && d > 60 && d <= 120 },
+  { id:"d270",    rot:"121–270 dias",cls:"yellow", teste: d => d !== null && d > 120 && d <= 270 },
+  { id:"ok",      rot:"> 270 dias",  cls:"green",  teste: d => d !== null && d > 270 }
+];
+
+function popularFiltroRedeVenc(lotes) {
+  const el = document.getElementById("f-venc-rede");
+  if (!el) return;
+  const redes = [...new Set(lotes.map(l=>l.rede).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  const atual = el.value;
+  el.innerHTML = `<option value="">Todas as redes</option>` + redes.map(r=>`<option value="${String(r).replace(/"/g,"&quot;")}">${r}</option>`).join("");
+  el.value = atual;
+  if (el.value !== atual) el.value = "";
+}
+
+function renderMatrizVencimentos(lotes) {
+  const cont = document.getElementById("venc-container");
+  const fRede = document.getElementById("f-venc-rede")?.value || "";
+  const porCategoria = (document.getElementById("f-venc-colunas")?.value === "categoria");
+  const soUrgentes = !!document.getElementById("f-venc-so-urgentes")?.checked;
+  const promotor = document.getElementById("f-venc-promotor")?.value || "";
+
+  let base = lotes.slice();
+  if (fRede) base = base.filter(l => l.rede === fRede);
+
+  // Agrupa por loja (nome + número do endereço, a mesma chave do resto do sistema)
+  const lojas = {};
+  base.forEach(l => {
+    const k = chaveLojaCob(l.loja, l.lojaEnde);
+    if (!lojas[k]) lojas[k] = { nome:l.loja||"—", ende:l.lojaEnde||"", rede:l.rede||"", itens:[] };
+    lojas[k].itens.push(l);
+  });
+
+  const unidades = arr => arr.reduce((s,x)=>s + (parseInt(x.qtd,10)||0), 0);
+  const piorDia  = arr => { let m=null; arr.forEach(x=>{ if(x.dias===null) return; if(m===null||x.dias<m) m=x.dias; }); return m; };
+
+  let linhas = Object.values(lojas).map(g => ({
+    ...g, pior: piorDia(g.itens), unidades: unidades(g.itens), lotes: g.itens.length
+  }));
+  if (soUrgentes) linhas = linhas.filter(r => r.pior !== null && r.pior <= 120);
+  // Mais urgente no topo; loja só com lote sem data vai para o fim
+  linhas.sort((a,b) => (a.pior===null?99999:a.pior) - (b.pior===null?99999:b.pior));
+
+  if (!linhas.length) {
+    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div>${soUrgentes?"Nenhuma loja com lote em 120 dias ou menos neste filtro.":"Nenhum lote de validade neste filtro."}</div>`;
+    return;
+  }
+
+  // Colunas: faixas de prazo, ou as categorias que aparecem no filtro
+  let colunas;
+  if (porCategoria) {
+    const cats = [...new Set(base.map(l=>l.cat).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    colunas = cats.map(c => ({ id:c, rot:c, teste:null }));
+  } else {
+    colunas = VENC_FAIXAS.slice();
+    const semData = base.filter(l => l.dias === null).length;
+    if (semData) colunas.push({ id:"semdata", rot:"Sem data", cls:"muted", teste: d => d === null });
+  }
+
+  const corDe = cls => cls==="red"?"var(--red)":cls==="yellow"?"var(--yellow)":cls==="green"?"var(--green)":"var(--muted)";
+  const fundoDe = cls => cls==="red"?"rgba(229,57,53,.10)":cls==="yellow"?"rgba(245,158,11,.12)":cls==="green"?"rgba(34,160,90,.10)":"var(--card2)";
+
+  const hoje = new Date().toLocaleDateString("pt-BR");
+  const subtitulo = [
+    fRede || "Todas as redes",
+    promotor || "Todos os promotores",
+    porCategoria ? "por categoria" : "por prazo de vencimento"
+  ].join(" · ");
+
+  let html = `<div style="padding:18px 20px 6px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h3 style="font-size:17px;font-weight:700;">Painel de vencimentos</h3>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px;">${subtitulo} · ${linhas.length} loja(s) · gerado em ${hoje}</div>
+      </div>
+      <div style="display:flex;gap:14px;font-size:12px;flex-wrap:wrap;">
+        <span style="color:var(--red);font-weight:700;">🔴 ≤ 120 dias</span>
+        <span style="color:var(--yellow);font-weight:700;">⚠️ 121–270</span>
+        <span style="color:var(--green);font-weight:700;">✅ > 270</span>
+      </div>
+    </div>
+  </div>
+  <table style="font-size:12px;"><thead><tr>
+    <th style="text-align:left;min-width:190px;">Loja</th>
+    <th style="text-align:center;white-space:nowrap;">Pior prazo</th>
+    ${colunas.map(c=>`<th style="text-align:center;white-space:nowrap;${c.cls?`color:${corDe(c.cls)};`:""}">${c.rot}</th>`).join("")}
+    <th style="text-align:center;">Total</th>
+  </tr></thead><tbody>`;
+
+  const totCol = {}, totColLotes = {};
+  linhas.forEach(r => {
+    const piorLabel = r.pior===null ? "—" : r.pior<0 ? `Vencido ${Math.abs(r.pior)}d` : r.pior===0 ? "Hoje" : `${r.pior}d`;
+    const piorCls = r.pior===null ? "muted" : colorClass(r.pior);
+    html += `<tr>
+      <td style="text-align:left;"><strong>${r.nome}</strong>${r.ende?`<div style="font-size:10px;color:var(--muted);margin-top:1px;">${r.ende}</div>`:""}</td>
+      <td style="text-align:center;font-weight:700;color:${corDe(piorCls)};white-space:nowrap;">${piorLabel}</td>`;
+    colunas.forEach(c => {
+      const itens = porCategoria
+        ? r.itens.filter(x => x.cat === c.id)
+        : r.itens.filter(x => c.teste(x.dias));
+      const un = unidades(itens);
+      totCol[c.id] = (totCol[c.id]||0) + un;
+      totColLotes[c.id] = (totColLotes[c.id]||0) + itens.length;
+      if (!itens.length) { html += `<td style="text-align:center;color:var(--border);">·</td>`; return; }
+      // Em colunas por categoria a cor vem do pior prazo daquela categoria na loja
+      const cls = porCategoria ? (piorDia(itens)===null ? "muted" : colorClass(piorDia(itens))) : c.cls;
+      const extra = porCategoria && piorDia(itens)!==null ? `<div style="font-size:9px;font-weight:600;">${piorDia(itens)<0?"vencido":piorDia(itens)+"d"}</div>` : "";
+      html += `<td style="text-align:center;background:${fundoDe(cls)};">
+        <div style="font-weight:700;color:${corDe(cls)};">${un||itens.length}${un?" un":" lt"}</div>
+        ${extra || (itens.length>1?`<div style="font-size:9px;color:var(--muted);">${itens.length} lotes</div>`:"")}
+      </td>`;
+    });
+    html += `<td style="text-align:center;font-weight:700;">${r.unidades} un<div style="font-size:9px;color:var(--muted);font-weight:400;">${r.lotes} lote(s)</div></td></tr>`;
+  });
+
+  html += `</tbody><tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:var(--card2);">
+    <td style="text-align:left;">TOTAL</td><td></td>
+    ${colunas.map(c=>{
+      // Coluna que só tem lote sem quantidade somaria 0 e pareceria vazia, enquanto a
+      // célula mostra "1 lt" — nesse caso o total mostra os lotes, não as unidades
+      const un = totCol[c.id]||0, lt = totColLotes[c.id]||0;
+      return `<td style="text-align:center;">${un ? un+" un" : (lt ? lt+" lt" : "0")}</td>`;
+    }).join("")}
+    <td style="text-align:center;">${linhas.reduce((s,r)=>s+r.unidades,0)}</td>
+  </tr></tfoot></table>
+  <p style="font-size:11px;color:var(--muted);padding:12px 20px 18px;margin:0;">Cada célula soma as <strong>unidades</strong> dos lotes registrados na última visita de cada loja. Lote sem quantidade informada conta como lote (lt), não como unidade.</p>`;
+
+  cont.innerHTML = html;
+}
 
 
 /* ─── CATEGORIAS / PAINEL / PREÇOS ─── */
