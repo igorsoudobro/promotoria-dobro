@@ -1105,6 +1105,21 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
         <div id="book-fotos-status" style="display:none;margin-top:12px;font-size:13px;color:var(--muted);"></div>
       </div>
 
+      <!-- Giro de Estoque -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:32px;box-shadow:0 1px 4px rgba(26,43,74,.06);">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <h3 style="font-size:16px;font-weight:700;">📈 Giro de Estoque</h3>
+            <p style="font-size:13px;color:var(--muted);margin-top:4px;">Compara as contagens de estoque da mesma loja em datas diferentes, SKU por SKU: o que caiu entre duas visitas saiu da gôndola, o que subiu foi reposto.</p>
+          </div>
+          <div style="min-width:180px;">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Rede / Canal</label>
+            <select id="giro-rede" class="filter-select" style="width:100%;"><option value="">Todas as redes</option></select>
+          </div>
+          <button onclick="exportarGiroEstoque()" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);">⬇️ Baixar Excel</button>
+        </div>
+      </div>
+
       <!-- Relatórios separados -->
       <h3 style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:16px;">Relatórios separados</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;">
@@ -5288,6 +5303,207 @@ window.exportarConsolidado = function() {
   baixarWb(wb, "Relatorio_Consolidado" + relSufixo());
 };
 
+/* ═══════════════════════════════════════
+   GIRO DE ESTOQUE
+   Alinha as contagens de estoque da mesma loja em datas diferentes, SKU por SKU.
+
+   Três decisões que mudam a leitura dos números:
+   1. Queda entre duas contagens = saída de gôndola. Alta = reposição — e quando repôs,
+      NÃO se sabe quanto vendeu no intervalo (pode ter vendido 10 e reposto 20). Por isso
+      "Saídas" e "Entradas" são somadas em colunas separadas, nunca compensadas.
+   2. SKU que aparece numa contagem e não na seguinte NÃO é zero: é "não contado". Tratar
+      ausência como zero inventaria uma saída do estoque inteiro.
+   3. O app tem um teto: o botão "100 ou mais" grava qtd=100 com teto48=true. Variação que
+      encosta no teto é incerta (podia ser 180), então a linha vai marcada.
+═══════════════════════════════════════ */
+function diasEntre(d1, d2) {
+  if (!d1 || !d2) return "";
+  const a = new Date(d1+"T12:00:00"), b = new Date(d2+"T12:00:00");
+  if (isNaN(a) || isNaN(b)) return "";
+  return Math.round((b - a) / 86400000);
+}
+const dataBR = d => d ? String(d).split("-").reverse().join("/") : "";
+
+function dadosGiroEstoque() {
+  const f = relFiltro();
+  const rede = document.getElementById("giro-rede")?.value || "";
+
+  // Nome/endereço/rede canônicos vêm do cadastro quando a visita casa com uma loja
+  const mapaLoja = {};
+  LOJAS_DB.forEach(l => { const k = chaveLojaCob(l.nome, l.ende); if (!mapaLoja[k]) mapaLoja[k] = l; });
+
+  let vs = VISITAS.filter(v => relPassa(v, f) && (v.estoque||[]).length);
+  if (rede) vs = vs.filter(v => redeDaVisita(v) === rede);
+
+  // loja -> sku -> pontos no tempo
+  const lojas = {};
+  vs.forEach(v => {
+    const k = chaveLojaCob(v.loja, v.lojaEnde);
+    if (!lojas[k]) {
+      const cad = mapaLoja[k];
+      lojas[k] = {
+        nome: (cad ? cad.nome : v.loja) || "",
+        ende: (cad ? cad.ende : v.lojaEnde) || "",
+        rede: (cad ? (cad.canal||"") : ""),
+        skus: {}, endes: new Set(), datas: new Set()
+      };
+    }
+    const g = lojas[k];
+    g.endes.add(v.lojaEnde || "");
+    if (v.data) g.datas.add(v.data);
+    (v.estoque||[]).forEach(e => {
+      const sku = e.sku || "";
+      if (!sku) return;
+      if (!g.skus[sku]) g.skus[sku] = { desc: e.desc||"", cat: e.cat||"", pontos: [] };
+      g.skus[sku].pontos.push({
+        data: v.data || "",
+        ts: v.timestamp || "",   // desempata duas visitas no mesmo dia
+        qtd: (e.qtd === null || e.qtd === undefined || e.qtd === "") ? null : Number(e.qtd),
+        teto: e.teto48 === true,
+        prom: v.promotor || ""
+      });
+    });
+  });
+
+  const giro = [], resumo = [], conferir = [];
+  const chavesLoja = Object.keys(lojas).sort((a,b)=>(lojas[a].nome||"").localeCompare(lojas[b].nome||"","pt-BR"));
+  const todasDatas = new Set();
+
+  chavesLoja.forEach(k => {
+    const g = lojas[k];
+    g.datas.forEach(d => todasDatas.add(d));
+
+    // Mesma chave (nome + número do endereço) com endereços diferentes: pode ser duas
+    // lojas distintas caindo no mesmo grupo. Vai para a aba "Conferir" em vez de virar
+    // comparação silenciosa entre lojas que não são a mesma.
+    if (g.endes.size > 1) {
+      conferir.push({ Loja: g.nome, "Endereços no mesmo grupo": [...g.endes].join("  |  "), "Contagens": g.datas.size });
+    }
+
+    Object.keys(g.skus)
+      .sort((a,b)=>(g.skus[a].desc||a).localeCompare(g.skus[b].desc||b,"pt-BR"))
+      .forEach(sku => {
+        const s = g.skus[sku];
+        // Ordem cronológica. Sem o timestamp no desempate, duas contagens no mesmo dia
+        // ficariam na ordem em que o Firestore devolveu — e a "anterior" podia ser a de
+        // depois, invertendo o sinal da variação.
+        const pontos = s.pontos.slice().sort((a,b)=>
+          a.data < b.data ? -1 : a.data > b.data ? 1 : (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)
+        );
+
+        let saidas = 0, entradas = 0, temTeto = false;
+        pontos.forEach((p, i) => {
+          const ant = i > 0 ? pontos[i-1] : null;
+          const varia = (ant && p.qtd !== null && ant.qtd !== null) ? (p.qtd - ant.qtd) : "";
+          const dias = ant ? diasEntre(ant.data, p.data) : "";
+          if (p.teto || (ant && ant.teto)) temTeto = true;
+          if (typeof varia === "number") {
+            if (varia < 0) saidas += -varia; else if (varia > 0) entradas += varia;
+          }
+          let situacao;
+          if (!ant) situacao = "1ª contagem";
+          else if (varia === "") situacao = "sem quantidade";
+          else if (varia < 0) situacao = "Saída (vendeu)";
+          else if (varia > 0) situacao = "Reposição";
+          else situacao = "Sem movimento";
+
+          giro.push({
+            Loja: g.nome, Endereço: g.ende, Rede: g.rede,
+            Categoria: s.cat, Produto: s.desc, SKU: sku,
+            Data: dataBR(p.data),
+            Estoque: p.qtd === null ? "" : p.qtd,
+            "Data anterior": ant ? dataBR(ant.data) : "",
+            "Estoque anterior": ant ? (ant.qtd === null ? "" : ant.qtd) : "",
+            Variação: varia,
+            "Dias desde a anterior": dias,
+            "Saída por dia": (typeof varia === "number" && varia < 0 && typeof dias === "number" && dias > 0)
+              ? Math.round((-varia/dias)*100)/100 : "",
+            Situação: situacao,
+            "Teto ≥100": (p.teto || (ant && ant.teto)) ? "sim" : "",
+            Promotor: p.prom
+          });
+        });
+
+        const pri = pontos[0], ult = pontos[pontos.length-1];
+        const diasTotal = pontos.length > 1 ? diasEntre(pri.data, ult.data) : "";
+        resumo.push({
+          Loja: g.nome, Endereço: g.ende, Rede: g.rede,
+          Categoria: s.cat, Produto: s.desc, SKU: sku,
+          Contagens: pontos.length,
+          "1ª contagem": dataBR(pri.data),
+          "Estoque inicial": pri.qtd === null ? "" : pri.qtd,
+          "Última contagem": dataBR(ult.data),
+          "Estoque final": ult.qtd === null ? "" : ult.qtd,
+          "Variação total": (pri.qtd !== null && ult.qtd !== null) ? (ult.qtd - pri.qtd) : "",
+          "Saídas (soma das quedas)": saidas,
+          "Entradas (soma das altas)": entradas,
+          "Dias entre 1ª e última": diasTotal,
+          "Saída por dia": (typeof diasTotal === "number" && diasTotal > 0) ? Math.round((saidas/diasTotal)*100)/100 : "",
+          "Teto ≥100": temTeto ? "sim" : ""
+        });
+      });
+  });
+
+  // Aba cruzada: uma linha por loja+SKU, uma coluna por data. Só com poucas datas — com o
+  // período aberto a planilha viraria dezenas de colunas e deixaria de ser legível.
+  const datas = [...todasDatas].sort();
+  let pivot = null;
+  if (datas.length && datas.length <= 31) {
+    pivot = [];
+    chavesLoja.forEach(k => {
+      const g = lojas[k];
+      Object.keys(g.skus)
+        .sort((a,b)=>(g.skus[a].desc||a).localeCompare(g.skus[b].desc||b,"pt-BR"))
+        .forEach(sku => {
+          const s = g.skus[sku];
+          // Endereço junto da loja: sem ele não se distingue duas Centauro na aba cruzada
+          const linha = { Loja: g.nome, Endereço: g.ende, Rede: g.rede, Produto: s.desc, SKU: sku };
+          // Duas visitas na mesma data: vale a última contagem daquele dia
+          datas.forEach(d => {
+            const doDia = s.pontos.filter(p => p.data === d).sort((a,b)=> a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+            linha[dataBR(d)] = doDia.length ? (doDia[doDia.length-1].qtd === null ? "" : doDia[doDia.length-1].qtd) : "";
+          });
+          pivot.push(linha);
+        });
+    });
+  }
+
+  return { giro, resumo, pivot, conferir, datas, nLojas: chavesLoja.length, nVisitas: vs.length };
+}
+
+window.exportarGiroEstoque = function() {
+  const d = dadosGiroEstoque();
+  if (!d.giro.length) {
+    alert("Nenhuma contagem de estoque no filtro selecionado.\n\nO giro sai das contagens feitas no app — confira o período, o promotor e a rede.");
+    return;
+  }
+
+  const comparaveis = d.resumo.filter(r => r.Contagens > 1).length;
+  const leiaMe = [
+    { Campo: "Contagens no filtro", Valor: `${d.nVisitas} visita(s) com estoque, em ${d.nLojas} loja(s)` },
+    { Campo: "Período", Valor: (relFiltro().ini || "início") + " a " + (relFiltro().fim || "hoje") },
+    { Campo: "Promotor", Valor: relFiltro().prom || "Todos" },
+    { Campo: "Rede", Valor: document.getElementById("giro-rede")?.value || "Todas" },
+    { Campo: "Pares loja+SKU com 2 ou mais contagens", Valor: `${comparaveis} de ${d.resumo.length}` },
+    { Campo: "", Valor: "" },
+    { Campo: "Queda entre duas contagens", Valor: "Saiu da gôndola — é o giro." },
+    { Campo: "Alta entre duas contagens", Valor: "Houve reposição. Nesse intervalo NÃO se sabe quanto vendeu: pode ter vendido 10 e reposto 20. Por isso Saídas e Entradas ficam em colunas separadas e não são compensadas." },
+    { Campo: "SKU sem linha numa data", Valor: "Não foi contado naquela visita — não significa estoque zero." },
+    { Campo: "Efeito do período", Valor: "Só entram contagens DENTRO do período. A contagem imediatamente anterior ao início não é usada como ponto de partida — a primeira contagem do período aparece como \"1ª contagem\", sem variação. Para pegar o giro desde antes, amplie a data inicial." },
+    { Campo: "Teto ≥100 = sim", Valor: "Alguma das contagens usou o botão \"100 ou mais\" do app. A quantidade real podia ser maior, então a variação dessa linha é um piso, não um número exato." },
+    { Campo: "Agrupamento das lojas", Valor: "Visitas são agrupadas por nome + número do endereço, igual ao resto do sistema. Se a aba Conferir tiver linhas, olhe antes de confiar naqueles grupos." },
+    { Campo: "Aba Por data", Valor: d.pivot ? "Uma coluna por data de contagem." : `Não gerada: ${d.datas.length} datas distintas no filtro (limite 31). Reduza o período.` }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.giro), "Giro");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.resumo), "Resumo por SKU");
+  if (d.pivot && d.pivot.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.pivot), "Por data");
+  if (d.conferir.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.conferir), "Conferir");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(leiaMe), "Como ler");
+  baixarWb(wb, "Giro_Estoque" + relSufixo());
+};
+
 function renderRelatorios() {
   // Popula seletor de promotores
   const sel = document.getElementById("rel-promotor");
@@ -5298,14 +5514,13 @@ function renderRelatorios() {
   sel.innerHTML = `<option value="">Todos</option>` + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${n}">${n}</option>`).join("");
   sel.value = atual;
 
-  // Popula redes/canais no Relatório Semanal de Merchandising
-  const selRede = document.getElementById("book-rede");
-  if (selRede) {
-    const atualR = selRede.value;
-    const canais = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort();
-    selRede.innerHTML = `<option value="">Todas as redes</option>` + canais.map(c=>`<option value="${c}">${c}</option>`).join("");
-    selRede.value = atualR;
-  }
+  // Popula redes/canais no Relatório Semanal de Merchandising e no Giro de Estoque
+  const canais = [...new Set(LOJAS_DB.map(l=>l.canal).filter(Boolean))].sort();
+  const optsRede = `<option value="">Todas as redes</option>` + canais.map(c=>`<option value="${String(c).replace(/"/g,"&quot;")}">${c}</option>`).join("");
+  ["book-rede","giro-rede"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { const atualR = el.value; el.innerHTML = optsRede; el.value = atualR; }
+  });
 }
 
 
