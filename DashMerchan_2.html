@@ -1305,7 +1305,8 @@ window.carregarDados = async () => {
       // o que fazia visitas gravadas sem timestamp ficarem invisíveis. Ordenamos no cliente.
       const [snap] = await Promise.all([
         firebase.firestore().collection("visitas").get(),
-        carregarLojasPromotores()
+        carregarLojasPromotores(),
+        carregarConfigPainel()
       ]);
       VISITAS = snap.docs.map(d=>({id:d.id,...d.data()}));
       // Ordena por timestamp; se faltar, usa horaFim, senão a data da visita
@@ -1344,6 +1345,35 @@ function popularFiltroPromotores() {
     const el = document.getElementById(id);
     if (el) { const atual = el.value; el.innerHTML = opts; el.value = atual; }
   });
+}
+
+// Preços ideais e tolerâncias ficavam só na memória de quem abrisse a aba Est. Preços ou
+// Painel. Quem fosse direto para Relatórios exportava com PRECOS_IDEAIS vazio — e a coluna
+// "Preço ideal" saía em branco, sem erro nenhum. Agora carrega junto com visitas e lojas.
+async function carregarConfigPainel() {
+  try {
+    const snap = await firebase.firestore().collection("config").doc("painel").get();
+    if (!snap.exists) return;
+    const d = snap.data() || {};
+    if (d.precos_ideais) PRECOS_IDEAIS = d.precos_ideais;
+    if (d.precos_tolerancia) PRECOS_TOLERANCIA = d.precos_tolerancia;
+    if (d.precos_removidos) PRECOS_REMOVIDOS = d.precos_removidos;
+  } catch(e) { console.warn("Config do painel:", e); }
+}
+
+// Hora legível a partir do ISO gravado pelo app (horaInicio / horaFim)
+function horaFmt(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+}
+// Duração da visita em minutos, quando as duas pontas existem
+function duracaoMin(ini, fim) {
+  if (!ini || !fim) return "";
+  const a = new Date(ini), b = new Date(fim);
+  if (isNaN(a) || isNaN(b)) return "";
+  const m = Math.round((b - a) / 60000);
+  return m >= 0 ? m : "";
 }
 
 /* ─── REDE DA VISITA ───
@@ -4812,26 +4842,81 @@ function dadosVisitas() {
     Data: v.data || "",
     Loja: v.loja || "",
     Endereço: v.lojaEnde || "",
+    Rede: redeDaVisita(v),
     Promotor: v.promotor || "",
+    "Hora de entrada": horaFmt(v.horaInicio),
+    "Hora de saída": horaFmt(v.horaFim),
+    "Duração (min)": duracaoMin(v.horaInicio, v.horaFim),
     Validade: v.statusValidade===true?"Com problema":v.statusValidade===false?"OK":"",
+    "Pior validade (dias)": (piorDias(v)===null?"":piorDias(v)),
     MPdV: v.mpdv===true?"Sim":v.mpdv===false?"Não":"",
     "Obs. inicial": v.obsInicial || "",
     "Obs. final": v.obsFinal || "",
-    "Qtd fotos": (v.fotosAntes?.length||0)+(v.fotosDepois?.length||0),
-    "Nº produtos validade": (v.produtos||[]).length
+    Observação: v.outrosTexto || "",
+    "Nº produtos validade": (v.produtos||[]).length,
+    "Nº SKUs contados": new Set((v.estoque||[]).map(e=>e.sku)).size,
+    "Categorias com preço": Object.keys(v.precos||{}).length,
+    "Fotos antes": (v.fotosAntes?.length||0),
+    "Fotos depois": (v.fotosDepois?.length||0),
+    "Fotos MPdV": (v.fotosMpdv?.length||0),
+    "Qtd fotos": (v.fotosAntes?.length||0)+(v.fotosDepois?.length||0)+(v.fotosMpdv?.length||0),
+    "Editado por": v.editadoPor || "",
+    "Registrado em": v.timestamp || "",
+    ID: v.id || ""
   }));
+}
+
+// Contagem de estoque: uma linha por SKU contado. Faltava no Consolidado — só existia no
+// Excel da aba Visitas.
+function dadosEstoque() {
+  const f = relFiltro();
+  const linhas = [];
+  VISITAS.filter(v=>relPassa(v,f)).forEach(v => {
+    (v.estoque||[]).forEach(e => {
+      linhas.push({
+        Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Rede: redeDaVisita(v),
+        Promotor: v.promotor||"", Categoria: e.cat||"", Produto: e.desc||"", SKU: e.sku||"",
+        Quantidade: (e.qtd===null||e.qtd===undefined||e.qtd==="") ? "" : e.qtd,
+        "Teto ≥100": e.teto48===true ? "sim" : ""
+      });
+    });
+  });
+  return linhas;
+}
+
+// Uma linha por foto, com o link do Cloudinary — as outras abas só traziam a contagem
+function dadosFotos() {
+  const f = relFiltro();
+  const linhas = [];
+  const push = (v, tipo, url, prod) => linhas.push({
+    Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Rede: redeDaVisita(v),
+    Promotor: v.promotor||"", Tipo: tipo, Produto: prod||"", Link: url||""
+  });
+  VISITAS.filter(v=>relPassa(v,f)).forEach(v => {
+    (v.fotosAntes||[]).forEach(u => push(v, "Antes", u));
+    (v.fotosDepois||[]).forEach(u => push(v, "Depois", u));
+    (v.fotosMpdv||[]).forEach(u => push(v, "MPdV", u));
+    (v.produtos||[]).forEach(p => (p.fotos||[]).forEach(u => push(v, "Validade", u, p.desc||p.sku||"")));
+  });
+  return linhas;
 }
 function dadosPrecos() {
   const f = relFiltro();
   const linhas = [];
   VISITAS.filter(v=>relPassa(v,f)).forEach(v => {
     Object.entries(v.precos||{}).forEach(([cat,d]) => {
+      const preco = (d.presente && d.preco) ? parseFloat(d.preco) : "";
+      const ideal = PRECOS_IDEAIS[cat];
+      const temIdeal = (ideal !== undefined && ideal !== null && ideal !== "");
       linhas.push({
-        Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"",
+        Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Rede: redeDaVisita(v),
         Promotor: v.promotor||"", Categoria: cat,
         Disponível: d.presente===true?"Sim":d.presente===false?"Não":"",
-        "Preço (R$)": d.presente&&d.preco?parseFloat(d.preco):"",
-        "Preço ideal": PRECOS_IDEAIS[cat]||"",
+        "Preço (R$)": preco,
+        "Preço ideal (R$)": temIdeal ? ideal : "",
+        "Tolerância (%)": (PRECOS_TOLERANCIA[cat]===undefined||PRECOS_TOLERANCIA[cat]===null) ? "" : PRECOS_TOLERANCIA[cat],
+        "Dif. vs ideal (R$)": (typeof preco==="number" && temIdeal) ? Math.round((preco-ideal)*100)/100 : "",
+        "Dif. vs ideal (%)": (typeof preco==="number" && temIdeal && ideal>0) ? Math.round(((preco-ideal)/ideal*100)*10)/10 : "",
         Justificativa: d.justificativa||""
       });
     });
@@ -4846,23 +4931,28 @@ function dadosVencimentos() {
       (p.lotes||[]).forEach(l => {
         const dias = diasParaVencer(l.validade);
         linhas.push({
-          Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"",
+          Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Rede: redeDaVisita(v),
           Promotor: v.promotor||"", Categoria: p.cat||"",
           Produto: p.desc||"", SKU: p.sku||"",
           Quantidade: l.qtd||"", Validade: l.validade||"",
-          "Dias p/ vencer": dias!=null?dias:""
+          "Dias p/ vencer": dias!=null?dias:"",
+          Status: dias===null?"Sem data":(dias<=120?"Urgente":dias<=270?"Atenção":"OK"),
+          "Fotos do produto": (p.fotos||[]).length
         });
       });
     });
   });
   return linhas;
 }
+// Agora traz também as visitas que responderam NÃO ao MPdV. Antes só as positivadas
+// entravam, então a planilha não permitia calcular o percentual de positivação.
 function dadosMpdv() {
   const f = relFiltro();
-  return VISITAS.filter(v=>relPassa(v,f) && v.mpdv).map(v => ({
-    Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"",
-    Promotor: v.promotor||"", Positivou: "Sim",
-    "Qtd fotos MPdV": (v.fotosMpdv?.length||0)
+  return VISITAS.filter(v=>relPassa(v,f) && (v.mpdv===true || v.mpdv===false)).map(v => ({
+    Data: v.data||"", Loja: v.loja||"", Endereço: v.lojaEnde||"", Rede: redeDaVisita(v),
+    Promotor: v.promotor||"", Positivou: v.mpdv===true?"Sim":"Não",
+    "Qtd fotos MPdV": (v.fotosMpdv?.length||0),
+    "Links das fotos": (v.fotosMpdv||[]).join("  |  ")
   }));
 }
 function dadosRotas() {
@@ -5291,14 +5381,26 @@ window.exportarBookFotos = async function() {
   status.textContent = `✓ PDF gerado com ${totalFotos} foto(s) de ${totalVisitas} visita(s).`;
 };
 
+// Consolidado = tudo o que o app grava, cada coisa na sua aba. Estoque, Fotos e o Giro
+// ficavam de fora: a contagem de estoque só existia no Excel da aba Visitas, os links das
+// fotos em lugar nenhum e o giro só no relatório próprio.
 window.exportarConsolidado = function() {
   const wb = XLSX.utils.book_new();
-  const v = dadosVisitas(), p = dadosPrecos(), venc = dadosVencimentos(), m = dadosMpdv(), r = dadosRotas();
-  if (v.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(v), "Visitas");
-  if (p.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(p), "Preços");
-  if (venc.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(venc), "Vencimentos");
-  if (m.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(m), "MPdV");
-  if (r.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(r), "Rotas");
+  const giro = dadosGiroEstoque("");   // "" = sem filtro de rede, independente do seletor do bloco Giro
+  const abas = [
+    ["Visitas",        dadosVisitas()],
+    ["Estoque",        dadosEstoque()],
+    ["Preços",         dadosPrecos()],
+    ["Vencimentos",    dadosVencimentos()],
+    ["MPdV",           dadosMpdv()],
+    ["Fotos",          dadosFotos()],
+    ["Giro",           giro.giro],
+    ["Giro por SKU",   giro.resumo],
+    ["Rotas",          dadosRotas()]
+  ];
+  abas.forEach(([nome, dados]) => {
+    if (dados && dados.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), nome);
+  });
   if (!wb.SheetNames.length) { alert("Nenhum dado no filtro selecionado."); return; }
   baixarWb(wb, "Relatorio_Consolidado" + relSufixo());
 };
@@ -5324,9 +5426,10 @@ function diasEntre(d1, d2) {
 }
 const dataBR = d => d ? String(d).split("-").reverse().join("/") : "";
 
-function dadosGiroEstoque() {
+// redeOpt: passe "" para ignorar o seletor de rede do bloco (usado pelo Consolidado)
+function dadosGiroEstoque(redeOpt) {
   const f = relFiltro();
-  const rede = document.getElementById("giro-rede")?.value || "";
+  const rede = (redeOpt !== undefined) ? redeOpt : (document.getElementById("giro-rede")?.value || "");
 
   // Nome/endereço/rede canônicos vêm do cadastro quando a visita casa com uma loja
   const mapaLoja = {};
