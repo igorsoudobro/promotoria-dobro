@@ -1739,10 +1739,10 @@ window.setVencFilter = (f, btn) => {
 
 // Todos os lotes de validade do filtro de promotor, um por lote. Extraído de
 // renderVencimentos para a matriz usar exatamente a mesma base da lista detalhada.
-function lotesVencimento() {
+function lotesVencimento(visitasBase) {
   const promotor = document.getElementById("f-venc-promotor")?.value;
   const lotes = [];
-  VISITAS.forEach(v => {
+  (visitasBase || VISITAS).forEach(v => {
     if (promotor && v.promotor !== promotor) return;
     (v.produtos||[]).forEach(p => {
       (p.lotes||[]).forEach(l => {
@@ -1755,6 +1755,56 @@ function lotesVencimento() {
     });
   });
   return lotes;
+}
+
+/* Última e penúltima visita de cada loja.
+   A matriz somava TODAS as visitas: uma loja visitada 4 vezes aparecia com o mesmo lote
+   contado 4 vezes (Vila das Frutas com 27 lotes era a mesma gôndola repetida). O painel
+   tem de retratar a gôndola HOJE, ou seja, a última visita — e a penúltima serve para
+   mostrar o que saiu no intervalo. O modo Detalhado continua listando todas as visitas,
+   que é onde a comparação linha a linha é feita na mão. */
+function visitasParaMatriz() {
+  const promotor = document.getElementById("f-venc-promotor")?.value;
+  const porLoja = {};
+  VISITAS.forEach(v => {
+    if (promotor && v.promotor !== promotor) return;
+    if (!v.data) return;
+    const k = chaveLojaCob(v.loja, v.lojaEnde);
+    (porLoja[k] = porLoja[k] || []).push(v);
+  });
+  const ordem = (a,b) => (a.data === b.data)
+    ? String(a.timestamp||"").localeCompare(String(b.timestamp||""))
+    : (a.data < b.data ? -1 : 1);
+  const res = {};
+  Object.keys(porLoja).forEach(k => {
+    const vs = porLoja[k].sort(ordem);
+    res[k] = { atual: vs[vs.length-1], anterior: vs.length > 1 ? vs[vs.length-2] : null };
+  });
+  return res;
+}
+
+// Unidades de lote com validade que sumiram entre a visita anterior e a atual.
+// Só conta lote presente NAS DUAS visitas (mesmo SKU + mesma validade): lote que some da
+// contagem pode ter sido vendido ou simplesmente não recontado, e chutar inflaria a saída.
+// O que sumiu por completo volta em separado, para não ficar escondido.
+function saidaDesdeAnterior(anterior, atual) {
+  if (!anterior) return null;
+  const mapa = arr => {
+    const m = {};
+    (arr.produtos||[]).forEach(p => (p.lotes||[]).forEach(l => {
+      const k = (p.sku||"") + "||" + (l.validade||"");
+      m[k] = (m[k]||0) + (parseInt(l.qtd,10)||0);
+    }));
+    return m;
+  };
+  const ant = mapa(anterior), atu = mapa(atual);
+  let saiu = 0, sumido = 0, lotesSumidos = 0;
+  Object.keys(ant).forEach(k => {
+    if (atu[k] === undefined) { sumido += ant[k]; lotesSumidos++; return; }
+    const d = ant[k] - atu[k];
+    if (d > 0) saiu += d;
+  });
+  return { saiu, sumido, lotesSumidos, dataAnterior: anterior.data };
 }
 
 let VENC_MODO = "detalhe";
@@ -1771,14 +1821,21 @@ window.renderVencimentos = () => {
   const sortBy = document.getElementById("vf-sort").value;
   let lotes = lotesVencimento();
 
-  // Stats venc — sempre sobre o total, independentemente do modo e do filtro de status
-  document.getElementById("sv-green").textContent  = lotes.filter(l=>l.cls==="green").length;
-  document.getElementById("sv-yellow").textContent = lotes.filter(l=>l.cls==="yellow").length;
-  document.getElementById("sv-red").textContent    = lotes.filter(l=>l.cls==="red").length;
-  document.getElementById("sv-total").textContent  = lotes.length;
+  // Na matriz os cartões contam só a última visita de cada loja, igual à tabela abaixo —
+  // senão o print mostraria "106 lotes urgentes" sobre uma matriz que soma bem menos.
+  const mapaVisitas = (VENC_MODO === "matriz") ? visitasParaMatriz() : null;
+  const doTopo = mapaVisitas
+    ? lotesVencimento(Object.values(mapaVisitas).map(x => x.atual))
+    : lotes;
+  document.getElementById("sv-green").textContent  = doTopo.filter(l=>l.cls==="green").length;
+  document.getElementById("sv-yellow").textContent = doTopo.filter(l=>l.cls==="yellow").length;
+  document.getElementById("sv-red").textContent    = doTopo.filter(l=>l.cls==="red").length;
+  document.getElementById("sv-total").textContent  = doTopo.length;
+  const subTotal = document.querySelector("#sv-total")?.nextElementSibling;
+  if (subTotal) subTotal.textContent = mapaVisitas ? "na última visita de cada loja" : "registrados";
 
   popularFiltroRedeVenc(lotes);
-  if (VENC_MODO === "matriz") { renderMatrizVencimentos(lotes); return; }
+  if (VENC_MODO === "matriz") { renderMatrizVencimentos(doTopo, mapaVisitas); return; }
 
   // Filter
   if (vencFilterCurrent !== "all") lotes = lotes.filter(l=>l.cls===vencFilterCurrent);
@@ -1863,8 +1920,9 @@ function popularFiltroRedeVenc(lotes) {
   if (el.value !== atual) el.value = "";
 }
 
-function renderMatrizVencimentos(lotes) {
+function renderMatrizVencimentos(lotes, mapaVisitas) {
   const cont = document.getElementById("venc-container");
+  mapaVisitas = mapaVisitas || {};
   const fRede = document.getElementById("f-venc-rede")?.value || "";
   const porCategoria = (document.getElementById("f-venc-colunas")?.value === "categoria");
   const soUrgentes = !!document.getElementById("f-venc-so-urgentes")?.checked;
@@ -1877,7 +1935,12 @@ function renderMatrizVencimentos(lotes) {
   const lojas = {};
   base.forEach(l => {
     const k = chaveLojaCob(l.loja, l.lojaEnde);
-    if (!lojas[k]) lojas[k] = { nome:l.loja||"—", ende:l.lojaEnde||"", rede:l.rede||"", itens:[] };
+    if (!lojas[k]) {
+      const mv = mapaVisitas[k];
+      lojas[k] = { nome:l.loja||"—", ende:l.lojaEnde||"", rede:l.rede||"", itens:[],
+                   dataVisita: mv ? (mv.atual.data||"") : (l.data||""),
+                   saida: mv ? saidaDesdeAnterior(mv.anterior, mv.atual) : null };
+    }
     lojas[k].itens.push(l);
   });
 
@@ -1921,7 +1984,7 @@ function renderMatrizVencimentos(lotes) {
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
       <div>
         <h3 style="font-size:17px;font-weight:700;">Painel de vencimentos</h3>
-        <div style="font-size:12px;color:var(--muted);margin-top:3px;">${subtitulo} · ${linhas.length} loja(s) · gerado em ${hoje}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px;">${subtitulo} · ${linhas.length} loja(s) · <strong>última visita de cada loja</strong> · gerado em ${hoje}</div>
       </div>
       <div style="display:flex;gap:14px;font-size:12px;flex-wrap:wrap;">
         <span style="color:var(--red);font-weight:700;">🔴 ≤ 120 dias</span>
@@ -1932,17 +1995,21 @@ function renderMatrizVencimentos(lotes) {
   </div>
   <table style="font-size:12px;"><thead><tr>
     <th style="text-align:left;min-width:190px;">Loja</th>
+    <th style="text-align:center;white-space:nowrap;">Visita</th>
     <th style="text-align:center;white-space:nowrap;">Pior prazo</th>
     ${colunas.map(c=>`<th style="text-align:center;white-space:nowrap;${c.cls?`color:${corDe(c.cls)};`:""}">${c.rot}</th>`).join("")}
     <th style="text-align:center;">Total</th>
+    <th style="text-align:center;white-space:nowrap;" title="Unidades que saíram entre a visita anterior e esta">Saiu desde a anterior</th>
   </tr></thead><tbody>`;
 
   const totCol = {}, totColLotes = {};
   linhas.forEach(r => {
     const piorLabel = r.pior===null ? "—" : r.pior<0 ? `Vencido ${Math.abs(r.pior)}d` : r.pior===0 ? "Hoje" : `${r.pior}d`;
     const piorCls = r.pior===null ? "muted" : colorClass(r.pior);
+    const dataFmt = r.dataVisita ? new Date(r.dataVisita+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}) : "—";
     html += `<tr>
       <td style="text-align:left;"><strong>${r.nome}</strong>${r.ende?`<div style="font-size:10px;color:var(--muted);margin-top:1px;">${r.ende}</div>`:""}</td>
+      <td style="text-align:center;color:var(--muted);white-space:nowrap;">${dataFmt}</td>
       <td style="text-align:center;font-weight:700;color:${corDe(piorCls)};white-space:nowrap;">${piorLabel}</td>`;
     colunas.forEach(c => {
       const itens = porCategoria
@@ -1960,20 +2027,40 @@ function renderMatrizVencimentos(lotes) {
         ${extra || (itens.length>1?`<div style="font-size:9px;color:var(--muted);">${itens.length} lotes</div>`:"")}
       </td>`;
     });
-    html += `<td style="text-align:center;font-weight:700;">${r.unidades} un<div style="font-size:9px;color:var(--muted);font-weight:400;">${r.lotes} lote(s)</div></td></tr>`;
+    // Saída desde a visita anterior: o que o vendedor quer saber é se girou ou empacou
+    let saiuCel;
+    if (!r.saida) {
+      saiuCel = `<span style="color:var(--muted);font-size:11px;">1ª visita</span>`;
+    } else {
+      const d = r.saida.dataAnterior ? new Date(r.saida.dataAnterior+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}) : "";
+      const base = r.saida.saiu > 0
+        ? `<span style="color:var(--green);font-weight:700;">− ${r.saida.saiu} un</span>`
+        : `<span style="color:var(--muted);">sem saída</span>`;
+      const extra = r.saida.sumido
+        ? `<div style="font-size:9px;color:var(--muted);" title="Lote que estava na visita anterior e não foi recontado nesta: pode ter saído ou não ter sido contado">+ ${r.saida.sumido} un não recontadas</div>`
+        : "";
+      saiuCel = `${base}<div style="font-size:9px;color:var(--muted);">desde ${d}</div>${extra}`;
+    }
+    html += `<td style="text-align:center;font-weight:700;">${r.unidades} un<div style="font-size:9px;color:var(--muted);font-weight:400;">${r.lotes} lote(s)</div></td>
+      <td style="text-align:center;white-space:nowrap;">${saiuCel}</td></tr>`;
   });
 
+  const totSaiu = linhas.reduce((s,r)=>s + (r.saida ? r.saida.saiu : 0), 0);
   html += `</tbody><tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:var(--card2);">
-    <td style="text-align:left;">TOTAL</td><td></td>
+    <td style="text-align:left;">TOTAL</td><td></td><td></td>
     ${colunas.map(c=>{
       // Coluna que só tem lote sem quantidade somaria 0 e pareceria vazia, enquanto a
       // célula mostra "1 lt" — nesse caso o total mostra os lotes, não as unidades
       const un = totCol[c.id]||0, lt = totColLotes[c.id]||0;
       return `<td style="text-align:center;">${un ? un+" un" : (lt ? lt+" lt" : "0")}</td>`;
     }).join("")}
-    <td style="text-align:center;">${linhas.reduce((s,r)=>s+r.unidades,0)}</td>
+    <td style="text-align:center;">${linhas.reduce((s,r)=>s+r.unidades,0)} un</td>
+    <td style="text-align:center;color:var(--green);">${totSaiu ? "− "+totSaiu+" un" : "—"}</td>
   </tr></tfoot></table>
-  <p style="font-size:11px;color:var(--muted);padding:12px 20px 18px;margin:0;">Cada célula soma as <strong>unidades</strong> dos lotes registrados na última visita de cada loja. Lote sem quantidade informada conta como lote (lt), não como unidade.</p>`;
+  <p style="font-size:11px;color:var(--muted);padding:12px 20px 18px;margin:0;line-height:1.6;">
+    Cada célula soma as <strong>unidades</strong> dos lotes registrados na <strong>última visita</strong> de cada loja — não o acumulado de todas as visitas. Lote sem quantidade informada conta como lote (lt), não como unidade.<br>
+    <strong>Saiu desde a anterior</strong> compara lote a lote (mesmo SKU e mesma validade) com a visita anterior. Lote que estava antes e não foi recontado agora aparece como “não recontadas”, separado: pode ter saído ou apenas não ter sido contado, e somar os dois inflaria a venda.
+  </p>`;
 
   cont.innerHTML = html;
 }
