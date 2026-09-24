@@ -470,6 +470,15 @@ textarea { resize: none; min-height: 72px; line-height: 1.5; }
     Dados serão salvos localmente até as credenciais serem adicionadas.
   </div>
 
+  <!-- Visita que não subiu fica guardada no celular, mas até aqui isso era INVISÍVEL:
+       o promotor via o botão do WhatsApp e seguia achando que tinha enviado. -->
+  <div id="pendentes-banner" style="display:none;background:#fff4e5;border:1px solid #f59e0b;border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+    <div style="font-size:13px;font-weight:700;color:#92400e;">⚠️ <span id="pend-titulo"></span></div>
+    <div id="pend-lista" style="font-size:12px;color:#92400e;margin-top:6px;line-height:1.5;"></div>
+    <div id="pend-erro" style="display:none;font-size:11px;color:#92400e;margin-top:6px;word-break:break-word;"></div>
+    <button onclick="reenviarAgora()" id="pend-btn" style="margin-top:10px;width:100%;background:#f59e0b;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">🔄 Reenviar agora</button>
+  </div>
+
   <div class="field">
     <span class="field-label">Promotor</span>
     <div class="produto-select-wrap">
@@ -728,6 +737,10 @@ textarea { resize: none; min-height: 72px; line-height: 1.5; }
     </button>
   </div>
   <div id="btn-zap-wrap" style="display:none;margin-top:10px;">
+    <div id="zap-aviso-pendente" style="display:none;background:#fff4e5;border:1px solid #f59e0b;border-radius:10px;padding:11px 13px;margin-bottom:10px;font-size:12px;color:#92400e;line-height:1.5;">
+      <strong>⚠️ Esta visita ainda NÃO chegou ao sistema.</strong><br>
+      Ela ficou guardada no celular. Volte ao início e toque em <strong>Reenviar agora</strong> assim que tiver sinal — se fechar o app sem reenviar, ela continua aqui esperando.
+    </div>
     <button class="btn" onclick="abrirZap()" style="background:#25D366;color:#fff;font-size:15px;font-weight:700;margin-bottom:10px;">📲 Enviar resumo no grupo</button>
     <button class="btn btn-primary" onclick="proximaLoja()" style="margin-bottom:10px;">➡️ Próxima loja</button>
     <p style="text-align:center;font-size:11px;color:var(--muted);margin-top:4px;">Registrado no sistema Dobro Promotoria</p>
@@ -1172,6 +1185,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Fica ANTES do await abaixo de propósito: o get() do catálogo não tem timeout e,
   // com sinal ruim, pode ficar pendurado — e aí o reenvio nunca era alcançado nesta
   // abertura do app, deixando a visita presa no celular por dias.
+  atualizarBannerPendentes();   // mostra a fila logo na abertura, antes de qualquer rede
   reenviarPendentes();
 
   // Carrega modificações do catálogo (categorias/SKUs ativados no dash)
@@ -1240,6 +1254,7 @@ async function reenviarPendentes() {
         // não falta de rede) travava a fila inteira para sempre e as visitas atrás dele
         // nunca subiam. Agora conta a tentativa, mantém na fila e segue para a próxima.
         item.tentativas = (item.tentativas || 0) + 1;
+        item.erro = String(e && e.message || e);  // fica visível no banner da tela inicial
         persistirPendentes(fila);
         // Sem rede não faz sentido insistir nas outras: cada tentativa gasta os 15s do
         // timeout. Para aqui e tenta tudo de novo no próximo gatilho de reenvio.
@@ -1254,12 +1269,65 @@ async function reenviarPendentes() {
   if (enviadas > 0) {
     toast(`✓ ${enviadas} visita(s) que estava(m) pendente(s) foram enviadas agora.`, "ok");
   }
+  try { atualizarBannerPendentes(); } catch(e) {}
 }
 
 // Gatilhos extras do reenvio. Antes só existia a abertura do app: se o promotor
 // deixasse o app aberto o dia todo, a visita presa não subia nem quando o sinal voltava.
 window.addEventListener("online", () => reenviarPendentes());
 document.addEventListener("visibilitychange", () => { if (!document.hidden) reenviarPendentes(); });
+
+/* ─── FILA VISÍVEL ───
+   A fila existia desde sempre, mas só o console a mostrava: uma visita podia ficar presa
+   no celular por dias sem ninguém — promotor ou gestão — ter como perceber. */
+function lerPendentes() {
+  try {
+    const arr = JSON.parse(localStorage.getItem("visitas_pendentes") || "[]");
+    return Array.isArray(arr) ? arr.filter(x => x && x.payload) : [];
+  } catch(e) { return []; }
+}
+
+function atualizarBannerPendentes(erroMsg) {
+  const box = document.getElementById("pendentes-banner");
+  if (!box) return;
+  const fila = lerPendentes();
+  if (!fila.length) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  document.getElementById("pend-titulo").textContent =
+    fila.length === 1 ? "1 visita ainda não chegou ao sistema" : fila.length + " visitas ainda não chegaram ao sistema";
+  document.getElementById("pend-lista").innerHTML = fila.slice(0,6).map(item => {
+    const p = item.payload || {};
+    const d = p.data ? String(p.data).split("-").reverse().join("/") : "sem data";
+    const tent = item.tentativas ? ` · ${item.tentativas} tentativa(s)` : "";
+    return `• ${p.loja || "loja não informada"} — ${d}${tent}`;
+  }).join("<br>") + (fila.length > 6 ? `<br>… e mais ${fila.length-6}` : "");
+  const elErro = document.getElementById("pend-erro");
+  const msg = erroMsg || (fila[0] && fila[0].erro) || "";
+  if (msg) { elErro.style.display = "block"; elErro.textContent = "Último erro: " + msg; }
+  else elErro.style.display = "none";
+}
+
+// Reenvio sob comando, com resposta na tela. O automático já roda sozinho, mas quando
+// falha ele é silencioso — e sem um botão o promotor não tem o que fazer além de esperar.
+window.reenviarAgora = async function() {
+  const btn = document.getElementById("pend-btn");
+  const antes = lerPendentes().length;
+  btn.disabled = true; btn.textContent = "Reenviando…";
+  try {
+    await reenviarPendentes();
+  } catch(e) { /* reenviarPendentes já trata; segue para o balanço abaixo */ }
+  const depois = lerPendentes();
+  btn.disabled = false; btn.textContent = "🔄 Reenviar agora";
+  if (!depois.length) {
+    toast(`✓ ${antes} visita(s) enviada(s) agora.`, "ok");
+    atualizarBannerPendentes();
+  } else {
+    const enviadas = antes - depois.length;
+    if (enviadas > 0) toast(`${enviadas} enviada(s); ${depois.length} ainda pendente(s).`, "err");
+    else toast(!navigator.onLine ? "Sem internet. Tente de novo com sinal." : "Não foi possível enviar. Mostre este aviso ao Igor.", "err");
+    atualizarBannerPendentes(depois[0] && depois[0].erro);
+  }
+};
 
 function carregarConfigs() {
   if (!FB_OK) return;
@@ -2070,21 +2138,32 @@ window.enviar = async ()=>{
     // rejeita sozinho (ficava "Enviando…" para sempre e a visita se perdia ao fechar o app)
     await salvarComTimeout(idVisita, payload, 15000);
     toast("✓ Registro salvo!","ok");
-    mostrarBotaoZap();
+    mostrarBotaoZap(true);
   } catch(e) {
     console.error(e);
     // Guarda com o MESMO id: se o set() do timeout completar sozinho depois,
     // o reenvio apenas reescreve o mesmo documento — sem visita duplicada.
-    try { const arr=JSON.parse(localStorage.getItem("visitas_pendentes")||"[]"); arr.push({ts:Date.now(),id:idVisita,payload}); localStorage.setItem("visitas_pendentes",JSON.stringify(arr)); } catch(e2){}
-    toast("⚠️ Sem internet para salvar agora. A visita foi guardada no celular e será enviada sozinha quando você abrir o app com sinal.","err");
-    mostrarBotaoZap();
+    try { const arr=JSON.parse(localStorage.getItem("visitas_pendentes")||"[]"); arr.push({ts:Date.now(),id:idVisita,payload,erro:String(e&&e.message||e)}); localStorage.setItem("visitas_pendentes",JSON.stringify(arr)); } catch(e2){}
+    // A mensagem dizia "sem internet" para QUALQUER falha. Se o erro for outro
+    // (permissão, dado inválido), dizer "sem internet" manda o promotor esperar sinal
+    // por uma visita que nunca vai subir sozinha.
+    toast(navigator.onLine
+      ? "⚠️ Não foi possível salvar agora. A visita ficou guardada no celular — use 'Reenviar agora' na tela inicial."
+      : "⚠️ Sem internet. A visita foi guardada no celular e sobe sozinha quando o sinal voltar.", "err");
+    mostrarBotaoZap(false);
   }
   btn.disabled=false; txt.textContent="Salvar registro"; spin.style.display="none";
 };
 
-function mostrarBotaoZap() {
+// ok=false: a visita NÃO subiu e está na fila do celular. O botão do WhatsApp continua
+// aparecendo (o resumo no grupo é outro assunto), mas com aviso — antes a tela ficava
+// idêntica à de sucesso e o promotor seguia achando que tinha enviado.
+function mostrarBotaoZap(ok) {
   document.getElementById("btn-enviar").style.display="none";
   document.getElementById("btn-zap-wrap").style.display="block";
+  const av = document.getElementById("zap-aviso-pendente");
+  if (av) av.style.display = (ok === false) ? "block" : "none";
+  atualizarBannerPendentes();
 }
 
 /* ─── PRÓXIMA LOJA ─── */
