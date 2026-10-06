@@ -5027,6 +5027,74 @@ function freqAlocada(loja) {
   return loja.freqAtr || loja.freq || "";
 }
 
+/* ─── DIAS TRABALHADOS ───
+   O promotor trabalha de segunda a sábado, com o sábado em meio período, e não trabalha
+   em feriado. É o divisor usado para transformar as visitas atreladas do mês na cota de
+   um período qualquer — inclusive de um único dia.
+   Feriados: só os NACIONAIS, calculados (os móveis saem da Páscoa). Feriado municipal
+   (ex: aniversário de São Paulo) não entra: a base tem lojas em vários estados. */
+function pascoa(ano) {
+  const a = ano % 19, b = Math.floor(ano/100), c = ano % 100;
+  const d = Math.floor(b/4), e = b % 4, f = Math.floor((b+8)/25);
+  const g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15) % 30;
+  const i = Math.floor(c/4), k = c % 4, l = (32+2*e+2*i-h-k) % 7;
+  const m = Math.floor((a+11*h+22*l)/451);
+  const mes = Math.floor((h+l-7*m+114)/31), dia = ((h+l-7*m+114) % 31) + 1;
+  return new Date(ano, mes-1, dia, 12, 0, 0);
+}
+const _FERIADOS_CACHE = {};
+function feriadosNacionais(ano) {
+  if (_FERIADOS_CACHE[ano]) return _FERIADOS_CACHE[ano];
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const mais = (base, n) => { const d = new Date(base.getTime()); d.setDate(d.getDate()+n); return d; };
+  const p = pascoa(ano);
+  const set = new Set([
+    `${ano}-01-01`, // Confraternização
+    `${ano}-04-21`, // Tiradentes
+    `${ano}-05-01`, // Trabalho
+    `${ano}-09-07`, // Independência
+    `${ano}-10-12`, // Padroeira
+    `${ano}-11-02`, // Finados
+    `${ano}-11-15`, // Proclamação
+    `${ano}-11-20`, // Consciência Negra
+    `${ano}-12-25`, // Natal
+    iso(mais(p,-47)), // Carnaval (terça)
+    iso(mais(p,-2)),  // Sexta-feira Santa
+    iso(mais(p,60))   // Corpus Christi
+  ]);
+  _FERIADOS_CACHE[ano] = set;
+  return set;
+}
+function ehFeriado(isoStr) {
+  const ano = parseInt(String(isoStr).slice(0,4), 10);
+  if (!ano) return false;
+  return feriadosNacionais(ano).has(isoStr);
+}
+// Soma os dias trabalhados entre duas datas: seg–sex = 1, sábado = 0,5, domingo e
+// feriado = 0. Devolve também os feriados encontrados, para o relatório poder dizer quais.
+function diasTrabalhados(ini, fim) {
+  const d = new Date(ini+"T12:00:00"), ate = new Date(fim+"T12:00:00");
+  if (isNaN(d) || isNaN(ate)) return { dias:0, feriados:[] };
+  let dias = 0; const feriados = [];
+  while (d <= ate) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const dow = d.getDay();
+    if (dow !== 0) {
+      if (ehFeriado(iso)) feriados.push(iso);
+      else dias += (dow === 6) ? 0.5 : 1;
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return { dias, feriados };
+}
+// Primeiro e último dia de um mês "AAAA-MM"
+function limitesDoMes(mes) {
+  const [a, m] = String(mes).split("-").map(Number);
+  if (!a || !m) return null;
+  return { ini: `${a}-${String(m).padStart(2,"0")}-01`,
+           fim: `${a}-${String(m).padStart(2,"0")}-${String(new Date(a, m, 0).getDate()).padStart(2,"0")}` };
+}
+
 function selectFreqAtr(loja, handler) {
   // Padrão é o caminho que passa pela fila de pendentes. editarFreqAtr (gravação imediata)
   // só é usado se alguém pedir explicitamente — evita gravar direto sem passar pelo Salvar.
@@ -5490,12 +5558,7 @@ window.exportarBookFotos = async function() {
   try { if (mesRel) rotaRel = await carregarSnapshotRota(mesRel); }
   catch(e) { console.warn("Rota do relatório:", e); }
 
-  const diasUteis = (a, b) => {
-    let n = 0; const d = new Date(a+"T12:00:00"), fim = new Date(b+"T12:00:00");
-    if (isNaN(d) || isNaN(fim)) return 0;
-    while (d <= fim) { if (d.getDay() !== 0) n++; d.setDate(d.getDate()+1); }
-    return n;
-  };
+  // Dias trabalhados (sábado = meio período, feriado nacional = 0) — ver diasTrabalhados()
 
   let programadas = 0, origemProgramadas = "", lojasNaRota = 0, estimado = false;
   const temSemanas = !!(rotaRel && rotaRel.meta && rotaRel.meta.semana1 && rotaRel.meta.blocos);
@@ -5515,18 +5578,22 @@ window.exportarBookFotos = async function() {
         const ini = fx.ini > f.ini ? fx.ini : f.ini;
         const fim = fx.fim < f.fim ? fx.fim : f.fim;
         if (ini > fim) continue;                       // semana fora do período
-        const d = diasUteis(ini, fim);
-        if (!d) continue;
-        programadas += porSemana[n-1] * d / 6;         // 6 dias úteis por semana da rota
-        detalhe.push("Semana " + n + " (" + d + " de 6 dias): " + porSemana[n-1] + " visitas");
+        const d = diasTrabalhados(ini, fim).dias;
+        const total = diasTrabalhados(fx.ini, fx.fim).dias;   // a própria semana, com feriado já descontado
+        if (!d || !total) continue;
+        programadas += porSemana[n-1] * d / total;
+        detalhe.push("Semana " + n + " (" + d + " de " + total + " dias): " + porSemana[n-1] + " visitas");
       }
       programadas = Math.round(programadas);
-      origemProgramadas = "Rota de " + mesRel + ", rateada pelos dias úteis do período — " + (detalhe.join("; ") || "nenhuma semana da rota cai neste período");
+      origemProgramadas = "Rota de " + mesRel + ", rateada pelos dias trabalhados do periodo — " + (detalhe.join("; ") || "nenhuma semana da rota cai neste periodo");
     } else {
       programadas = porSemana.reduce((s,v)=>s+v, 0);
       origemProgramadas = "Rota de " + mesRel + ", mês inteiro (o relatório está sem filtro de data).";
     }
   } else {
+    /* Sem rota importada: cota do período = visitas atreladas no mês ÷ dias trabalhados do
+       mês × dias trabalhados do período. A conta antiga era "frequência ÷ 4", que ignorava
+       o filtro de data — filtrar um único dia devolvia a cota da semana inteira. */
     estimado = true;
     const lojasEst = LOJAS_DB.filter(l => {
       const proms = l.promotores || [];
@@ -5535,19 +5602,38 @@ window.exportarBookFotos = async function() {
       if (redeFiltro && (l.canal||"") !== redeFiltro) return false;
       return true;
     });
-    lojasEst.forEach(l => { const fa = freqAlocada(l); if (fa) programadas += visitasNecessariasMes(fa)/4; });
-    programadas = Math.round(programadas);
+    let atreladasMes = 0;
+    lojasEst.forEach(l => { const fa = freqAlocada(l); if (fa) atreladasMes += visitasNecessariasMes(fa); });
     lojasNaRota = lojasEst.length;
-    origemProgramadas = "ESTIMATIVA — " + (mesRel
-      ? ("não há rota importada para " + mesRel + ".")
-      : "sem filtro de data não é possível saber de que mês é a rota; preencha o período em Relatórios.")
-      + " Calculado pela frequência alocada dividida por 4, o que supõe 4 semanas no mês.";
+
+    const lim = mesRel ? limitesDoMes(mesRel) : null;
+    if (lim && f.ini && f.fim) {
+      const doMes = diasTrabalhados(lim.ini, lim.fim);
+      const doPer = diasTrabalhados(f.ini, f.fim);
+      programadas = doMes.dias > 0 ? Math.round(atreladasMes * doPer.dias / doMes.dias) : 0;
+      const feriadosPer = doPer.feriados.map(fmtBR).join(", ");
+      origemProgramadas = "ESTIMATIVA — sem rota importada para " + mesRel + ". "
+        + atreladasMes + " visitas atreladas no mes / " + doMes.dias + " dias trabalhados x "
+        + doPer.dias + " dia(s) do periodo. Sabado conta meio periodo; domingo e feriado nacional nao contam"
+        + (feriadosPer ? " (feriado no periodo: " + feriadosPer + ")" : "") + ".";
+    } else {
+      programadas = atreladasMes;
+      origemProgramadas = "ESTIMATIVA — " + (mesRel
+        ? ("sem rota importada para " + mesRel + "; ")
+        : "sem filtro de data; ")
+        + "mostrando as " + atreladasMes + " visitas atreladas do mes inteiro. Preencha o periodo em Relatorios para a cota do dia.";
+    }
   }
   // Realizadas = todas as visitas do período (com ou sem foto). Visitas marcadas à mão
   // ficam de fora de propósito: elas são gravadas no dia 15 do mês, não no dia real.
   const realizadas = visitas.length;
   const naoFeitas = Math.max(0, programadas - realizadas);
   const perc = programadas > 0 ? Math.round(realizadas/programadas*100) : 0;
+  // O rótulo dizia sempre "na semana", mesmo filtrando um dia só
+  const _dtPer = (f.ini && f.fim) ? diasTrabalhados(f.ini, f.fim).dias : 0;
+  const subProgramadas = (f.ini && f.fim)
+    ? (_dtPer === 1 ? "cota de 1 dia" : "cota de " + String(_dtPer).replace(".",",") + " dias")
+    : "mes inteiro";
 
   /* ── Vencimentos encontrados nas visitas do período ──
      Referência é o FIM do período (ou hoje, sem filtro de data).
@@ -5624,7 +5710,7 @@ window.exportarBookFotos = async function() {
   let cursorY = 54;
   cursorY = secao(cursorY, "Cobertura do período");
   cursorY = kpis(cursorY, [
-    { rot:"Programadas", val:programadas, sub:"na semana",            cor:AZUL },
+    { rot:"Programadas", val:programadas, sub:subProgramadas,        cor:AZUL },
     { rot:"Realizadas",  val:realizadas,  sub:"registradas no app",   cor:VERDE },
     { rot:"Não feitas",  val:naoFeitas,   sub:"saldo do período",     cor:VERM },
     { rot:"% Realizado", val:perc+"%",    sub:realizadas+" de "+programadas, cor: perc>=80?VERDE:(perc>=50?AMAR:VERM) }
@@ -6605,27 +6691,74 @@ window.salvarEditarLoja = async function() {
   if (canal!== (l.canal||"")) mud.canal = canal;
   if (!Object.keys(mud).length) { fecharEditarLoja(); return; }
 
-  // Nome e número do endereço são a chave que liga visita↔loja no cálculo de cobertura.
-  // Mudando um dos dois, visita já registrada com a grafia antiga deixa de casar.
+  /* Nome e número do endereço são a chave que liga visita↔loja no cálculo de cobertura.
+     Corrigir o endereço de uma loja quebrava esse vínculo e o aviso só dizia que ia
+     quebrar — sem oferecer saída. Agora as visitas da loja são atualizadas junto, e o
+     histórico continua ligado.
+     Só são tocadas as visitas com nome E endereço EXATAMENTE iguais aos do cadastro: é a
+     string que o app grava ao escolher a loja na lista. Visita que casa só pela chave
+     (mesmo nome + mesmo número, endereço escrito diferente) pode ser de outra loja e fica
+     de fora — aparece no aviso, mas não é reescrita. */
+  let visitasDaLoja = [];
   if (mud.nome || mud.ende) {
     const antiga = chaveLojaCob(l.nome, l.ende);
     const nova = chaveLojaCob(nome, ende);
     if (antiga !== nova) {
-      const n = VISITAS.filter(v => chaveLojaCob(v.loja, v.lojaEnde) === antiga).length;
-      if (n && !confirm(`${n} visita(s) já registrada(s) casam com esta loja pelo nome + número do endereço.\n\nCom a alteração, essas visitas deixam de casar e somem de "Realizadas" na Cobertura desta loja.\n\nContinuar mesmo assim?`)) return;
+      visitasDaLoja = VISITAS.filter(v => (v.loja||"") === (l.nome||"") && (v.lojaEnde||"") === (l.ende||""));
+      const outras = VISITAS.filter(v => chaveLojaCob(v.loja, v.lojaEnde) === antiga && !visitasDaLoja.includes(v)).length;
+      if (visitasDaLoja.length || outras) {
+        let msg = "";
+        if (visitasDaLoja.length) {
+          msg += `Esta loja tem ${visitasDaLoja.length} visita(s) registrada(s) com o endereço antigo.\n\n`
+               + `Ao salvar, elas serão atualizadas junto para continuarem ligadas a esta loja — o histórico não se perde.\n`;
+        }
+        if (outras) {
+          msg += `\n⚠️ Outras ${outras} visita(s) batem com o nome e o número antigos, mas com o endereço escrito de forma diferente. `
+               + `Como podem ser de outra loja, NÃO serão alteradas e deixarão de casar com esta.\n`;
+        }
+        if (!confirm(msg + "\nContinuar?")) return;
+      }
     }
   }
 
+  const btn = document.getElementById("edloja-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Salvando…"; }
   try {
     await firebase.firestore().collection("lojas").doc(EDLOJA_ID).update(mud);
     Object.assign(l, mud);
+
+    // Releitura do vínculo: grava o novo nome/endereço nas visitas desta loja.
+    // Em blocos de 400 — o limite do batch do Firestore é 500.
+    let visitasOk = 0;
+    if (visitasDaLoja.length) {
+      const db = firebase.firestore();
+      const dados = { loja: nome, lojaEnde: ende };
+      for (let i = 0; i < visitasDaLoja.length; i += 400) {
+        const bloco = visitasDaLoja.slice(i, i+400);
+        const batch = db.batch();
+        bloco.forEach(v => batch.update(db.collection("visitas").doc(v.id), dados));
+        await batch.commit();
+        bloco.forEach(v => Object.assign(v, dados));   // reflete na memória
+        visitasOk += bloco.length;
+      }
+    }
+
     // Mudou nome, endereço ou rede: o filtro de rede das Visitas casa por nome + número
     if (mud.nome || mud.ende || mud.canal !== undefined) popularFiltroRedesVisitas();
     fecharEditarLoja();
     renderCadastroLojas();
+    if (visitasOk) {
+      calcStats(); renderTabela(); renderVencimentos(); renderLojas(); renderMpdv();
+      alert(`✓ Loja atualizada e ${visitasOk} visita(s) religada(s) ao novo endereço.`);
+    }
   } catch(e) {
     console.error(e);
-    alert("Não foi possível salvar (conexão ou permissão). Nada foi alterado.");
+    // A loja pode ter sido gravada e as visitas não: dizer qual é o estado evita o
+    // usuário achar que nada mudou e repetir a edição.
+    alert("Não foi possível concluir (conexão ou permissão).\n\n" + (e && e.message ? e.message : "")
+      + "\n\nConfira a loja no cadastro antes de tentar de novo: ela pode ter sido salva sem as visitas serem religadas.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Salvar alterações"; }
   }
 };
 
@@ -7298,7 +7431,7 @@ window.executarExclusao = async function() {
 
     <div style="display:flex;gap:8px;">
       <button onclick="fecharEditarLoja()" style="flex:1;background:none;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);color:var(--muted);">Cancelar</button>
-      <button onclick="salvarEditarLoja()" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">Salvar alterações</button>
+      <button onclick="salvarEditarLoja()" id="edloja-btn" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);">Salvar alterações</button>
     </div>
   </div>
 </div>
