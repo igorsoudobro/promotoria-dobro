@@ -4354,6 +4354,33 @@ function mesDaPlanilha(v) {
   if (m && abrev[m[1]]) { const a = m[2].length===2 ? "20"+m[2] : m[2]; return `${a}-${String(abrev[m[1]]).padStart(2,"0")}`; }
   return "";
 }
+/* A coluna "Data" da planilha de rota. Com ela cada linha vira uma visita num DIA certo —
+   as semanas deixam de ser adivinhadas pela ordem das linhas e o relatório passa a contar
+   exatamente o que estava programado no período filtrado, em vez de ratear.
+   Aceita Date (cellDates), número de série do Excel e texto dd/mm/aaaa ou aaaa-mm-dd. */
+function dataDaPlanilha(v) {
+  if (v == null || v === "") return "";
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  if (v instanceof Date && !isNaN(v)) return iso(v);
+  if (typeof v === "number" && isFinite(v) && v > 20000 && v < 80000) {
+    const d = new Date(Date.UTC(1899,11,30) + v*86400000);
+    if (!isNaN(d)) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2,"0")}-${String(m[3]).padStart(2,"0")}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) { const a = m[3].length===2 ? "20"+m[3] : m[3]; return `${a}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`; }
+  return "";
+}
+// Segunda-feira da semana que contém a data (a semana da rota é segunda a sábado)
+function segundaDaSemana(isoStr) {
+  const d = new Date(isoStr + "T12:00:00");
+  if (isNaN(d)) return "";
+  d.setDate(d.getDate() - ((d.getDay()+6) % 7));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
 function normalizarFreq(v) {
   const s = String(v||"").toLowerCase();
   if (s.includes("seman")) return "Semanal";
@@ -4406,13 +4433,22 @@ window.importarRotaExcel = function(input) {
       const mapa = {};
       Object.keys(linhas[0]).forEach(k => { mapa[normalizarCabecalho(k)] = k; });
       const cLoja = mapa["loja"], cEnde = mapa["endereco"], cFreq = mapa["frequencia"], cMes = mapa["mes"], cProm = mapa["promotor"];
+      const cData = mapa["data"];
       const faltando = [];
       if (!cLoja) faltando.push("Loja");
       if (!cFreq) faltando.push("Frequência");
+      if (!cData) faltando.push("Data");
       if (!cMes)  faltando.push("mês");
       if (!cProm) faltando.push("promotor");
       if (faltando.length) {
-        box.innerHTML = `<div style="border:1px solid var(--red);background:rgba(229,57,53,.06);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--red);">Não encontrei a(s) coluna(s): <strong>${faltando.join(", ")}</strong>.<br>Cabeçalhos lidos: ${Object.keys(linhas[0]).join(" · ")}</div>`;
+        box.innerHTML = `<div style="border:1px solid var(--red);background:rgba(229,57,53,.06);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--red);">
+          Não encontrei a(s) coluna(s): <strong>${faltando.join(", ")}</strong>.<br>
+          Cabeçalhos lidos: ${Object.keys(linhas[0]).join(" · ")}
+          ${faltando.includes("Data") ? `<div style="margin-top:8px;color:var(--text);font-weight:400;">
+            A coluna <strong>Data</strong> passou a ser obrigatória: é ela que diz em que dia cada loja será visitada.
+            Com ela, o relatório conta exatamente as visitas programadas no período filtrado, em vez de ratear a semana.
+            Formato aceito: 03/10/2026 ou 2026-10-03.</div>` : ""}
+        </div>`;
         return;
       }
 
@@ -4424,25 +4460,29 @@ window.importarRotaExcel = function(input) {
         (porFraca[kw] = porFraca[kw] || []).push(l);
       });
 
-      /* A planilha é uma AGENDA SEMANAL: cada linha é uma visita e a mesma loja aparece
-         uma vez por semana em que é visitada. Medido nos arquivos reais: agosto 231 linhas
-         = 123 lojas em 5 blocos; setembro 275 = 144 em 5 blocos; e ZERO loja repetida
-         dentro do mesmo bloco — é isso que identifica o bloco como uma semana.
-         Um novo bloco começa quando uma loja já vista reaparece. */
-      const blocoDaLinha = [];
-      {
-        const vistas = new Set();
-        let bloco = 1;
-        linhas.forEach((ln, i) => {
-          const k = chaveRotaForte(String(ln[cLoja]||""), cEnde ? String(ln[cEnde]||"") : "");
-          if (vistas.has(k)) { bloco++; vistas.clear(); }
-          vistas.add(k);
-          blocoDaLinha[i] = bloco;
-        });
-      }
-      const totalBlocos = blocoDaLinha.length ? Math.max(...blocoDaLinha) : 0;
+      /* Cada linha é uma visita num DIA. As semanas saem das datas reais (segunda a
+         sábado), não mais da ordem das linhas — some a adivinhação do "bloco" e o
+         encaixe manual da Semana 1, que era o que fazia a Semana 5 cair fora do mês. */
+      const semData = [];
+      const datasDaLinha = linhas.map((ln, i) => {
+        const d = dataDaPlanilha(ln[cData]);
+        if (!d) {
+          const nome = String(ln[cLoja]||"").trim();
+          if (nome || String(ln[cProm]||"").trim()) semData.push({ linha:i+2, nome, ende: cEnde?String(ln[cEnde]||"").trim():"" });
+        }
+        return d;
+      });
+      // Semana 1 = a da data mais antiga da planilha; cada data cai na sua semana
+      const todasDatas = datasDaLinha.filter(Boolean).sort();
+      const semana1Auto = todasDatas.length ? segundaDaSemana(todasDatas[0]) : "";
+      const semanaDaData = iso => {
+        if (!semana1Auto || !iso) return 0;
+        const dif = Math.round((new Date(iso+"T12:00:00") - new Date(semana1Auto+"T12:00:00")) / 86400000);
+        return dif < 0 ? 0 : Math.floor(dif/7) + 1;     // 1-based
+      };
+      const totalBlocos = todasDatas.length ? semanaDaData(todasDatas[todasDatas.length-1]) : 0;
 
-      const meses = {}, promotores = {}, porLoja = {};
+      const meses = {}, promotores = {}, porLoja = {}, porDia = {};
       const semFreq = [];
       const visitasPorBloco = new Array(totalBlocos+1).fill(0);
       linhas.forEach((ln, i) => {
@@ -4450,19 +4490,24 @@ window.importarRotaExcel = function(input) {
         const ende = cEnde ? String(ln[cEnde]||"").trim() : "";
         const prom = String(ln[cProm]||"").trim();
         const freq = normalizarFreq(ln[cFreq]);
-        const mes  = mesDaPlanilha(ln[cMes]);
+        const data = datasDaLinha[i];
+        // O mês vem da DATA da visita; a coluna "mês" fica como conferência
+        const mes  = data ? data.slice(0,7) : mesDaPlanilha(ln[cMes]);
         if (!nome && !prom) return;
+        if (!data) return;                       // já contabilizada em semData
         if (mes) meses[mes] = (meses[mes]||0)+1;
         if (prom) promotores[prom] = (promotores[prom]||0)+1;
-        const ref = { linha: i+2, nome, ende, prom, freq, mes };
+        const ref = { linha: i+2, nome, ende, prom, freq, mes, data };
         if (!freq) { semFreq.push(ref); return; }
-        const b = blocoDaLinha[i];
-        visitasPorBloco[b] = (visitasPorBloco[b]||0) + 1;
+        const b = semanaDaData(data);
+        if (b) visitasPorBloco[b] = (visitasPorBloco[b]||0) + 1;
+        porDia[data] = (porDia[data]||0) + 1;
         const k = chaveRotaForte(nome, ende) + "||" + prom;
-        if (!porLoja[k]) porLoja[k] = { nome, ende, prom, freqs:{}, linhas:[], semanas: new Array(totalBlocos).fill(0) };
+        if (!porLoja[k]) porLoja[k] = { nome, ende, prom, freqs:{}, linhas:[], dias:[], semanas: new Array(totalBlocos).fill(0) };
         porLoja[k].freqs[freq] = (porLoja[k].freqs[freq]||0) + 1;
         porLoja[k].linhas.push(i+2);
-        porLoja[k].semanas[b-1] = (porLoja[k].semanas[b-1]||0) + 1;
+        porLoja[k].dias.push(data);
+        if (b) porLoja[k].semanas[b-1] = (porLoja[k].semanas[b-1]||0) + 1;
       });
 
       const casadas = [], naoEncontradas = [], ambiguas = [], aproximadas = [], conflitoFreq = [];
@@ -4474,7 +4519,8 @@ window.importarRotaExcel = function(input) {
           return;
         }
         const ref = { linha: it.linhas[0], nome: it.nome, ende: it.ende, prom: it.prom, freq: freqsUsadas[0],
-                      ocorrencias: it.linhas.length, semanas: it.semanas, planejadas: it.linhas.length };
+                      ocorrencias: it.linhas.length, semanas: it.semanas, planejadas: it.linhas.length,
+                      dias: it.dias.slice().sort() };
         let achadas = porForte[chaveRotaForte(it.nome, it.ende)] || [];
         let aproximada = false;
         if (!achadas.length) { achadas = porFraca[chaveRotaFraca(it.nome, it.ende)] || []; aproximada = achadas.length === 1; }
@@ -4486,17 +4532,12 @@ window.importarRotaExcel = function(input) {
       });
 
       const mesesLista = Object.keys(meses);
-      // Semana 1: usa a que você já cadastrou em Rotas (ALOCACOES) para este mês; se não
-      // houver, propõe a segunda da semana que contém o dia 1º — e você confere na tela.
-      let semana1 = (typeof ALOCACOES === "object" && ALOCACOES) ? (ALOCACOES[mesesLista[0]] || "") : "";
-      if (!semana1 && mesesLista.length === 1) {
-        const p = new Date(mesesLista[0] + "-01T12:00:00");
-        if (!isNaN(p)) { const dia = p.getDay(); p.setDate(p.getDate() - ((dia+6)%7)); semana1 = p.toISOString().slice(0,10); }
-      }
-      ROTA_IMPORT = { casadas, naoEncontradas, ambiguas, semFreq, conflitoFreq, aproximadas,
+      ROTA_IMPORT = { casadas, naoEncontradas, ambiguas, semFreq, conflitoFreq, aproximadas, semData,
                       meses: mesesLista, promotores: Object.keys(promotores),
                       total: linhas.length, lojasDistintas: Object.keys(porLoja).length,
-                      blocos: totalBlocos, visitasPorBloco: visitasPorBloco.slice(1), semana1 };
+                      blocos: totalBlocos, visitasPorBloco: visitasPorBloco.slice(1),
+                      semana1: semana1Auto, porDia,
+                      diaIni: todasDatas[0]||"", diaFim: todasDatas[todasDatas.length-1]||"" };
 
       const listinha = (arr, titulo) => !arr.length ? "" :
         `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;">${titulo} (${arr.length})</summary>
@@ -4519,15 +4560,16 @@ window.importarRotaExcel = function(input) {
             ${ambiguas.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${ambiguas.length} ambígua(s) — casaram com mais de uma loja da base</span><br>`:""}
             ${conflitoFreq.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${conflitoFreq.length} com frequências diferentes na mesma loja</span><br>`:""}
             ${semFreq.length?`<span style="color:var(--yellow);font-weight:700;">⚠ ${semFreq.length} linha(s) sem frequência reconhecida</span><br>`:""}
+            ${semData.length?`<span style="color:var(--red);font-weight:700;">✕ ${semData.length} linha(s) sem data válida — ficam de fora</span><br>`:""}
           </div>
           <div style="margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;">
-            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Semanas da rota — confira antes de aplicar</div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Agenda lida da planilha</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-              A planilha não tem coluna de data. Encontrei <strong>${totalBlocos} semana(s)</strong> pela ordem das linhas
-              (uma loja nunca repete dentro da mesma semana). Informe a segunda-feira da Semana 1 e confira as faixas:
+              Datas de <strong>${fmtDiaBR(ROTA_IMPORT.diaIni)}</strong> a <strong>${fmtDiaBR(ROTA_IMPORT.diaFim)}</strong> ·
+              <strong>${Object.keys(porDia).length}</strong> dia(s) com visita ·
+              <strong>${totalBlocos}</strong> semana(s). As semanas saem das próprias datas — não há mais encaixe manual.
             </div>
-            <input type="date" id="rota-semana1" value="${ROTA_IMPORT.semana1||""}" onchange="renderBlocosRota()"
-              style="background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;padding:7px 9px;font-family:var(--font);margin-bottom:8px;">
+            <input type="hidden" id="rota-semana1" value="${ROTA_IMPORT.semana1||""}">
             <div id="rota-blocos" style="font-size:12px;"></div>
           </div>
           ${listinha(naoEncontradas, "Ver as não encontradas")}
@@ -4535,6 +4577,7 @@ window.importarRotaExcel = function(input) {
           ${listinha(aproximadas, "Ver as casadas por aproximação")}
           ${listinha(conflitoFreq, "Ver as com conflito de frequência")}
           ${listinha(semFreq, "Ver as sem frequência")}
+          ${listinha(semData, "Ver as sem data")}
           <p style="font-size:11px;color:var(--muted);margin:12px 0 0;line-height:1.6;">
             Ao aplicar: para <strong>cada promotor da planilha</strong>, a rota dele é substituída — ele é retirado de todas as lojas e recolocado só nas listadas, com a frequência indicada.
             Promotores que não aparecem na planilha <strong>não são alterados</strong>.
@@ -4554,27 +4597,34 @@ window.importarRotaExcel = function(input) {
   reader.readAsArrayBuffer(file);
 };
 
-// Mostra bloco → faixa de datas → nº de visitas, para você conferir o encaixe do calendário
+const fmtDiaBR = iso => iso ? String(iso).split("-").reverse().join("/") : "—";
+
+// Semana → faixa real → visitas, e dentro de cada semana os dias com o número de visitas.
+// É a agenda que o relatório vai contar depois, então ela aparece inteira para conferência.
 window.renderBlocosRota = function() {
   const cont = document.getElementById("rota-blocos");
   if (!cont || !ROTA_IMPORT) return;
-  const s1 = (document.getElementById("rota-semana1")||{}).value || "";
-  ROTA_IMPORT.semana1 = s1;
-  const mes = ROTA_IMPORT.meses[0] || "";
-  let html = "", alerta = "";
+  const s1 = ROTA_IMPORT.semana1 || "";
+  const porDia = ROTA_IMPORT.porDia || {};
+  const dias = Object.keys(porDia).sort();
+  const DOW = ["dom","seg","ter","qua","qui","sex","sáb"];
+  let html = "";
   for (let n = 1; n <= ROTA_IMPORT.blocos; n++) {
     const f = faixaSemanaRota(s1, n);
     const visitas = ROTA_IMPORT.visitasPorBloco[n-1] || 0;
-    const foraDoMes = f && mes && !(f.ini.startsWith(mes) || f.fim.startsWith(mes));
-    if (foraDoMes) alerta = "Alguma semana caiu inteiramente fora de " + mes + ". Ajuste a data da Semana 1.";
-    html += `<div style="display:flex;gap:10px;padding:3px 0;${foraDoMes?"color:var(--red);":""}">
-      <span style="min-width:78px;font-weight:700;">Semana ${n}</span>
-      <span style="min-width:110px;">${f ? f.rotulo : "—"}</span>
-      <span style="color:var(--muted);">${visitas} visita(s)</span></div>`;
+    const doBloco = f ? dias.filter(d => d >= f.ini && d <= f.fim) : [];
+    html += `<div style="padding:5px 0;border-top:1px solid var(--border);">
+      <div style="display:flex;gap:10px;">
+        <span style="min-width:78px;font-weight:700;">Semana ${n}</span>
+        <span style="min-width:110px;">${f ? f.rotulo : "—"}</span>
+        <span style="color:var(--muted);">${visitas} visita(s)</span>
+      </div>
+      ${doBloco.length ? `<div style="font-size:11px;color:var(--muted);margin:3px 0 0 88px;">
+        ${doBloco.map(d=>`${DOW[new Date(d+"T12:00:00").getDay()]} ${fmtDiaBR(d).slice(0,5)}: <strong>${porDia[d]}</strong>`).join(" · ")}
+      </div>` : ""}
+    </div>`;
   }
-  if (!s1) html = `<div style="color:var(--red);">Informe a segunda-feira da Semana 1.</div>`;
-  else if (alerta) html += `<div style="color:var(--red);margin-top:6px;">⚠ ${alerta}</div>`;
-  cont.innerHTML = html;
+  cont.innerHTML = html || `<div style="color:var(--red);">Nenhuma data válida na planilha.</div>`;
 };
 
 window.aplicarRotaImportada = async function() {
@@ -4605,6 +4655,7 @@ window.aplicarRotaImportada = async function() {
     // derivar da frequência, porque mês nenhum tem exatamente 4 semanas.
     alvo.semanas = c.semanas.slice();
     alvo.planejadas = c.planejadas;
+    alvo.dias = (c.dias||[]).slice();   // os dias exatos em que esta loja será visitada
   });
 
   const box = document.getElementById("rota-import-status");
@@ -4619,9 +4670,11 @@ window.aplicarRotaImportada = async function() {
       meta: {
         semana1, blocos: imp.blocos,
         visitasPorSemana: imp.visitasPorBloco,
+        porDia: imp.porDia || {},           // agenda do mês: data → nº de visitas programadas
+        diaIni: imp.diaIni || "", diaFim: imp.diaFim || "",
         totalPlanejadas: imp.casadas.reduce((s,c)=>s+c.planejadas, 0),
         promotores: imp.promotores,
-        origem: "planilha", importadoEm: new Date().toISOString(), importadoPor: USUARIO_EMAIL || ""
+        origem: "planilha-datas", importadoEm: new Date().toISOString(), importadoPor: USUARIO_EMAIL || ""
       }
     });
 
@@ -5561,8 +5614,33 @@ window.exportarBookFotos = async function() {
   // Dias trabalhados (sábado = meio período, feriado nacional = 0) — ver diasTrabalhados()
 
   let programadas = 0, origemProgramadas = "", lojasNaRota = 0, estimado = false;
-  const temSemanas = !!(rotaRel && rotaRel.meta && rotaRel.meta.semana1 && rotaRel.meta.blocos);
-  if (temSemanas) {
+
+  /* Rota com DATAS (planilha com coluna Data): conta exatamente as visitas programadas
+     dentro do período filtrado. Sem rateio, sem estimativa — filtrou 03 a 10, conta o que
+     estava agendado de 03 a 10. */
+  const comDatas = !!(rotaRel && rotaRel.lojas && Object.values(rotaRel.lojas).some(r => (r.dias||[]).length));
+  const temSemanas = !comDatas && !!(rotaRel && rotaRel.meta && rotaRel.meta.semana1 && rotaRel.meta.blocos);
+
+  if (comDatas) {
+    const ini = f.ini || "0000-00-00", fim = f.fim || "9999-99-99";
+    const diasContados = {};
+    Object.entries(rotaRel.lojas).forEach(([lojaId, r]) => {
+      if (f.prom && !((r.promotores||[]).includes(f.prom))) return;
+      if (redeFiltro) {
+        const l = LOJAS_DB.find(x => x.id === lojaId);
+        if (!l || (l.canal||"") !== redeFiltro) return;
+      }
+      const noPeriodo = (r.dias||[]).filter(d => d >= ini && d <= fim);
+      if (!noPeriodo.length) return;
+      lojasNaRota++;
+      programadas += noPeriodo.length;
+      noPeriodo.forEach(d => { diasContados[d] = (diasContados[d]||0) + 1; });
+    });
+    const dias = Object.keys(diasContados).sort();
+    origemProgramadas = "Rota de " + mesRel + " com datas: contagem exata do periodo"
+      + (dias.length ? " (" + dias.map(d => d.slice(8,10)+"/"+d.slice(5,7)+": "+diasContados[d]).join(", ") + ")" : " — nenhum dia agendado no periodo");
+  }
+  else if (temSemanas) {
     const blocos = rotaRel.meta.blocos;
     const porSemana = new Array(blocos).fill(0);
     Object.values(rotaRel.lojas||{}).forEach(r => {
