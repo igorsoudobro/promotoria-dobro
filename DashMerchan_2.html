@@ -787,6 +787,24 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
             <input type="text" id="cadastro-busca" placeholder="Nome ou endereço…" oninput="renderCadastroLojas()"
               style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:9px 12px;outline:none;font-family:var(--font);">
           </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Promotor</label>
+            <select id="cad-promotor" class="filter-select" onchange="renderCadastroLojas()" style="min-width:150px;"><option value="">Todos</option></select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Freq. alocada</label>
+            <select id="cad-freq" class="filter-select" onchange="renderCadastroLojas()" style="min-width:130px;">
+              <option value="">Todas</option>
+              <option value="Semanal">Semanal</option>
+              <option value="Quinzenal">Quinzenal</option>
+              <option value="Mensal">Mensal</option>
+              <option value="__SEM__">Não visita</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;">Estado</label>
+            <select id="cad-uf" class="filter-select" onchange="renderCadastroLojas()" style="min-width:90px;"><option value="">Todos</option></select>
+          </div>
           <div id="cadastro-contador" style="font-size:12px;color:var(--muted);padding-bottom:10px;white-space:nowrap;"></div>
         </div>
         <p style="font-size:11px;color:var(--muted);margin:12px 0 0;">Para atribuir ou retirar promotor de uma loja, use a tela <strong>Cobertura de Promotoria</strong>.</p>
@@ -4656,6 +4674,10 @@ window.aplicarRotaImportada = async function() {
     alvo.semanas = c.semanas.slice();
     alvo.planejadas = c.planejadas;
     alvo.dias = (c.dias||[]).slice();   // os dias exatos em que esta loja será visitada
+    // Nome e endereço vão no snapshot para o relatório conseguir NOMEAR a loja mesmo que
+    // ela seja apagada da base depois (loja fechada no meio do mês)
+    alvo.nome = c.lojaNome || c.nome || "";
+    alvo.ende = c.lojaEnde || c.ende || "";
   });
 
   const box = document.getElementById("rota-import-status");
@@ -5614,6 +5636,7 @@ window.exportarBookFotos = async function() {
   // Dias trabalhados (sábado = meio período, feriado nacional = 0) — ver diasTrabalhados()
 
   let programadas = 0, origemProgramadas = "", lojasNaRota = 0, estimado = false;
+  const naoRealizadas = [];   // lojas programadas no período que não têm visita registrada
 
   /* Rota com DATAS (planilha com coluna Data): conta exatamente as visitas programadas
      dentro do período filtrado. Sem rateio, sem estimativa — filtrou 03 a 10, conta o que
@@ -5626,8 +5649,8 @@ window.exportarBookFotos = async function() {
     const diasContados = {};
     Object.entries(rotaRel.lojas).forEach(([lojaId, r]) => {
       if (f.prom && !((r.promotores||[]).includes(f.prom))) return;
+      const l = LOJAS_DB.find(x => x.id === lojaId);
       if (redeFiltro) {
-        const l = LOJAS_DB.find(x => x.id === lojaId);
         if (!l || (l.canal||"") !== redeFiltro) return;
       }
       const noPeriodo = (r.dias||[]).filter(d => d >= ini && d <= fim);
@@ -5635,7 +5658,23 @@ window.exportarBookFotos = async function() {
       lojasNaRota++;
       programadas += noPeriodo.length;
       noPeriodo.forEach(d => { diasContados[d] = (diasContados[d]||0) + 1; });
+
+      /* Quais ficaram de fora: compara o programado com o que foi registrado no app.
+         O nome vem do cadastro e, se a loja já tiver sido apagada, do próprio snapshot. */
+      const nomeL = l ? l.nome : (r.nome || "");
+      const endeL = l ? (l.ende||"") : (r.ende || "");
+      const feitas = nomeL
+        ? visitas.filter(v => chaveLojaCob(v.loja, v.lojaEnde) === chaveLojaCob(nomeL, endeL)).length
+        : 0;
+      if (feitas < noPeriodo.length) {
+        naoRealizadas.push({
+          nome: nomeL || "(loja removida da base)", ende: endeL,
+          dias: noPeriodo, feitas, faltam: noPeriodo.length - feitas,
+          removida: !l, prom: (r.promotores||[]).join(", ")
+        });
+      }
     });
+    naoRealizadas.sort((a,b) => (a.dias[0]||"").localeCompare(b.dias[0]||"") || a.nome.localeCompare(b.nome,"pt-BR"));
     const dias = Object.keys(diasContados).sort();
     origemProgramadas = "Rota de " + mesRel + " com datas: contagem exata do periodo"
       + (dias.length ? " (" + dias.map(d => d.slice(8,10)+"/"+d.slice(5,7)+": "+diasContados[d]).join(", ") + ")" : " — nenhum dia agendado no periodo");
@@ -5804,6 +5843,36 @@ window.exportarBookFotos = async function() {
     pdf.text("Atencao: numero estimado. Importe a rota do mes para o valor exato.", margin, cursorY+3);
     pdf.setFont("helvetica","normal"); pdf.setTextColor(0,0,0);
     cursorY += 4;
+  }
+
+  /* Quais visitas não foram feitas. Antes o PDF dizia só "1 não feita" e ninguém sabia
+     qual loja era — inclusive quando a loja tinha fechado e sido apagada da base. */
+  if (naoRealizadas.length) {
+    cursorY += 5;
+    cursorY = secao(cursorY, "Visitas programadas que não foram realizadas");
+    const colX = [margin, margin+86, margin+136, margin+166];
+    const larg = [84, 48, 28, 20];
+    pdf.setFillColor(242,244,249); pdf.rect(margin, cursorY, util, 7, "F");
+    pdf.setFont("helvetica","bold"); pdf.setFontSize(7); pdf.setTextColor(...CINZA);
+    ["Loja","Endereço","Dia programado","Faltam"].forEach((t,i) => pdf.text(t.toUpperCase(), colX[i]+2, cursorY+4.7));
+    cursorY += 7;
+    naoRealizadas.slice(0,16).forEach(r => {
+      pdf.setDrawColor(237,240,246); pdf.line(margin, cursorY, margin+util, cursorY);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(7.5); pdf.setTextColor(0,0,0);
+      pdf.text(cortar(r.nome + (r.removida ? " (apagada da base)" : ""), larg[0]-4, 7.5), colX[0]+2, cursorY+4.6);
+      pdf.setTextColor(...CINZA);
+      pdf.text(cortar(r.ende || "-", larg[1]-4, 7.5), colX[1]+2, cursorY+4.6);
+      pdf.setTextColor(0,0,0);
+      pdf.text(r.dias.map(d => d.slice(8,10)+"/"+d.slice(5,7)).join(", "), colX[2]+2, cursorY+4.6);
+      pdf.setFont("helvetica","bold"); pdf.setTextColor(...VERM);
+      pdf.text(String(r.faltam), colX[3]+2, cursorY+4.6);
+      pdf.setTextColor(0,0,0);
+      cursorY += 6.2;
+    });
+    if (naoRealizadas.length > 16) cursorY = nota(cursorY, "... e mais " + (naoRealizadas.length-16) + " loja(s).");
+    if (naoRealizadas.some(r => r.removida)) {
+      cursorY = nota(cursorY, "Loja marcada como apagada da base foi excluida do cadastro depois de a rota ser importada (ex: loja fechada). Apagar a loja agora ja a retira da rota do mes.");
+    }
   }
 
   cursorY += 5;
@@ -6612,6 +6681,29 @@ async function renderCadastro() {
 // frequência ideal) + excluir. A marcação por promotor, o "Selecionar todas" e o
 // "Salvar alterações" saíram daqui — alocar promotor passou a ser feito na tela de
 // Cobertura de Promotoria, onde as três frequências ficam visíveis lado a lado.
+// Promotores e UFs vêm da própria base: listar o que não existe só atrapalha
+function popularFiltrosCadastro() {
+  const selP = document.getElementById("cad-promotor");
+  if (selP) {
+    const nomes = new Set();
+    LOJAS_DB.forEach(l => (l.promotores||[]).forEach(p => nomes.add(p)));
+    const atual = selP.value;
+    selP.innerHTML = `<option value="">Todos</option>`
+      + [...nomes].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(n=>`<option value="${String(n).replace(/"/g,"&quot;")}">${n}</option>`).join("")
+      + `<option value="__SEM__">— sem promotor —</option>`;
+    selP.value = atual;
+    if (selP.value !== atual) selP.value = "";
+  }
+  const selU = document.getElementById("cad-uf");
+  if (selU) {
+    const ufs = [...new Set(LOJAS_DB.map(l=>l.uf).filter(Boolean))].sort();
+    const atual = selU.value;
+    selU.innerHTML = `<option value="">Todos</option>` + ufs.map(u=>`<option value="${u}">${u}</option>`).join("");
+    selU.value = atual;
+    if (selU.value !== atual) selU.value = "";
+  }
+}
+
 window.renderCadastroLojas = function() {
   atualizarBannerSemPromotor();
   const busca = (document.getElementById("cadastro-busca")?.value||"").toLowerCase();
@@ -6625,8 +6717,28 @@ window.renderCadastroLojas = function() {
     return;
   }
 
+  popularFiltrosCadastro();
+  const fProm = document.getElementById("cad-promotor")?.value || "";
+  const fFreq = document.getElementById("cad-freq")?.value || "";
+  const fUF   = document.getElementById("cad-uf")?.value || "";
+
   const passaBusca = l => !busca || l.nome.toLowerCase().includes(busca) || (l.ende||"").toLowerCase().includes(busca);
-  const filtradas = LOJAS_DB.filter(passaBusca).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+  const passaProm = l => {
+    if (!fProm) return true;
+    const ps = l.promotores || [];
+    return fProm === "__SEM__" ? !ps.length : ps.includes(fProm);
+  };
+  // Filtra pela frequência ALOCADA (o que o promotor faz), que é a que muda a operação.
+  // "Não visita" = sem promotor ou sem frequência atrelada.
+  const passaFreq = l => {
+    if (!fFreq) return true;
+    const fa = freqAlocada(l);
+    return fFreq === "__SEM__" ? !fa : fa === fFreq;
+  };
+  const passaUF = l => !fUF || (l.uf||"") === fUF;
+
+  const filtradas = LOJAS_DB.filter(l => passaBusca(l) && passaProm(l) && passaFreq(l) && passaUF(l))
+                            .sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
 
   if (contador) contador.innerHTML = `<strong style="color:var(--accent)">${filtradas.length}</strong> de ${LOJAS_DB.length} loja(s)`;
 
@@ -6643,7 +6755,12 @@ window.renderCadastroLojas = function() {
         <div style="font-weight:600;font-size:14px;">${l.nome}</div>
         <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.ende||"—"} · ${l.uf||"—"} · ${l.canal||"—"}</div>
       </div>
-      <div style="flex-shrink:0;text-align:right;font-size:11px;line-height:1.5;min-width:130px;">
+      <div style="flex-shrink:0;text-align:right;font-size:11px;line-height:1.5;min-width:150px;">
+        <div style="color:var(--muted);" title="Promotor alocado — alterar na tela de Cobertura">${
+          (l.promotores||[]).length
+            ? `👤 <strong style="color:var(--text);">${(l.promotores||[]).join(", ")}</strong>`
+            : `<span style="color:var(--yellow);font-weight:700;">sem promotor</span>`
+        }</div>
         <div style="color:var(--muted);" title="Frequência ideal do canal">Ideal: <strong style="color:var(--text);">${l.freq||"não visita"}</strong></div>
         <div style="color:var(--muted);" title="Frequência que o promotor faz nesta loja — definida na tela de Cobertura">Alocada: <strong style="color:${freqAlocada(l)?"var(--accent)":"var(--yellow)"};">${freqAlocada(l)||"não visita"}</strong></div>
       </div>
@@ -6847,9 +6964,36 @@ window.excluirLojaCadastro = async function(lojaId, nome) {
   if (!confirm(`Excluir a loja "${nome}" do banco?\n\nIsso remove a loja da base permanentemente. O histórico de visitas NÃO é afetado.`)) return;
   if (!confirm(`Tem certeza? Esta ação não pode ser desfeita.\n\n"${nome}" será apagada do cadastro.`)) return;
   try {
-    await firebase.firestore().collection("lojas").doc(lojaId).delete();
+    const db = firebase.firestore();
+    await db.collection("lojas").doc(lojaId).delete();
     LOJAS_DB = LOJAS_DB.filter(l => l.id !== lojaId);
+
+    /* A loja sai da base, mas continuava na ROTA do mês — e o relatório seguia cobrando
+       as visitas programadas dela (loja fechada aparecia como "1 não feita", sem nome).
+       Tira também da rota em vigor. Meses passados não são tocados: são histórico do que
+       foi planejado na época. */
+    let tirouDaRota = 0;
+    const mes = mesRefAtual();
+    try {
+      const ref = db.collection("config").doc("rota_" + mes);
+      const snap = await ref.get();
+      if (snap.exists) {
+        const d = snap.data() || {};
+        if (d.lojas && d.lojas[lojaId]) {
+          tirouDaRota = (d.lojas[lojaId].dias || []).length || (d.lojas[lojaId].planejadas || 0);
+          delete d.lojas[lojaId];
+          if (d.meta) d.meta.totalPlanejadas = Object.values(d.lojas).reduce((s,r)=>s+(r.planejadas||0), 0);
+          await ref.set(d);
+          if (ROTA_VIVA && ROTA_VIVA[lojaId]) delete ROTA_VIVA[lojaId];
+        }
+      }
+    } catch(e2) {
+      console.warn("Rota do mês ao excluir loja:", e2);
+      alert(`A loja foi apagada, mas não consegui tirá-la da rota de ${mes}.\n\nO relatório pode continuar contando as visitas programadas dela. Avise para eu corrigir.`);
+    }
+
     renderCadastroLojas();
+    if (tirouDaRota) alert(`✓ Loja apagada e retirada da rota de ${mes} (${tirouDaRota} visita(s) programada(s) deixam de ser cobradas).`);
   } catch(e) {
     console.error(e);
     alert("Não foi possível excluir a loja (conexão ou permissão). Ela NÃO foi apagada.");
